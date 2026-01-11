@@ -1,0 +1,25 @@
+token_url: "https://<your-keycloak-server>/realms/<your-realm>/protocol/openid-connect/token"
+client_id: "<your-client-id>"
+client_secret: "<your-client-secret>"
+realm: "<your-realm>"
+api_url: "https://<your-keycloak-server>/admin/realms/<your-realm>" # this is the admin API URL
+# insecure_skip_tls_verify: false
+# otp_challenge_message: "Please enter your OTP code" # custom challenge message
+
+# RADIUS attribute mappings based on user scopes
+#scope_radius_map:
+#  admin:
+#    attribute: 6   # Service-Type
+#    value: "6"     # Administrative-User
+#  vpn:
+#    attribute: 8   # Framed-IP-Address
+#    value: "10.0.0.1"
+#  wifi:
+#    attribute: 64  # Tunnel-Type
+#    value: "VLAN"
+#  group_admins:
+#   attribute: 11  # Filter-Id
+#   value: "admins"
+# re:^group_.*:
+#    attribute: 11
+#    value: "group-member"

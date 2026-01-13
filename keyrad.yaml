@@ -1,8 +1,8 @@
-token_url: "https://auth.moenig.it/realms/sec73/protocol/openid-connect/token"
-client_id: "radius-client"
-client_secret: "04Qn7Lc1LFC6MebJWzlGiKLGfu6EGi26"
-realm: "sec73"
-api_url: "https://auth.intern.moenig.it/admin/realms/sec73" # this is the admin API URL
+token_url: "https://<>/realms/<>/protocol/openid-connect/token"
+client_id: "<>"
+client_secret: "<>"
+realm: "<>"
+api_url: "https://<>/admin/realms/<>" # this is the admin API URL
 insecure_skip_tls_verify: false
 otp_challenge_message: "Please enter your OTP code"
 

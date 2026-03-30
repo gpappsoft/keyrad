@@ -196,12 +196,23 @@ func (s *Server) HandlePacket(packet *radius.Packet, addr net.Addr, conn *net.UD
 					log.Printf("[DEBUG] DisableChallenge: %v", s.DisableChallenge)
 				}
 				if s.DisableChallenge {
-					if len(password) > 6 {
-						otp = password[len(password)-6:]
-						userPassword = password[:len(password)-6]
+					if len(password) <= 6 {
+						if s.Debug {
+							log.Printf("[DEBUG] Password too short for OTP split for %s", username)
+						}
+						resp := radius.New(radius.CodeAccessReject, secret)
+						resp.Identifier = packet.Identifier
+						resp.Authenticator = packet.Authenticator
+						b, err := resp.Encode()
+						if err == nil {
+							conn.WriteTo(b, addr)
+						}
+						return
 					}
+					otp = password[len(password)-6:]
+					userPassword = password[:len(password)-6]
 					if s.Debug {
-						log.Printf("[DEBUG] Split password: '%s', otp: '%s'", userPassword, otp)
+						log.Printf("[DEBUG] Split password length: %d, otp length: %d", len(userPassword), len(otp))
 					}
 					ok, roles, err := s.Keycloak.AuthenticateUser(username, userPassword, otp)
 					otpOk := ok && err == nil
@@ -234,7 +245,11 @@ func (s *Server) HandlePacket(packet *radius.Packet, addr net.Addr, conn *net.UD
 					if s.ChallengeStateStore == nil {
 						s.ChallengeStateStore = NewChallengeStateStore()
 					}
-					state := GenerateRandomState()
+					state, err := GenerateRandomState()
+					if err != nil {
+						log.Printf("Failed to generate challenge state: %v", err)
+						return
+					}
 					s.ChallengeStateStore.Set(state, ChallengeSession{Username: username, Password: password})
 					resp := radius.New(radius.CodeAccessChallenge, secret)
 					resp.Identifier = packet.Identifier
@@ -304,14 +319,14 @@ func (s *Server) ListenAndServe(listenAddr string) error {
 				}
 				for key, cfg := range s.Clients {
 					if s.Debug {
-						log.Printf("[DEBUG] Checking client key: %s, secret: %s", key, cfg.Secret)
+						log.Printf("[DEBUG] Checking client key: %s", key)
 					}
 					// Try as CIDR
 					_, ipnet, err := net.ParseCIDR(key)
 					if err == nil && ipnet.Contains(udpAddr.IP) {
 						secret = cfg.Secret
 						if s.Debug {
-							log.Printf("[DEBUG] Matched CIDR %s for %s, using secret: %s", key, udpAddr.IP, secret)
+							log.Printf("[DEBUG] Matched CIDR %s for %s", key, udpAddr.IP)
 						}
 						break
 					}
@@ -319,7 +334,7 @@ func (s *Server) ListenAndServe(listenAddr string) error {
 					if net.ParseIP(key) != nil && net.ParseIP(key).Equal(udpAddr.IP) {
 						secret = cfg.Secret
 						if s.Debug {
-							log.Printf("[DEBUG] Matched IP %s for %s, using secret: %s", key, udpAddr.IP, secret)
+							log.Printf("[DEBUG] Matched IP %s for %s", key, udpAddr.IP)
 						}
 						break
 					}

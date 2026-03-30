@@ -3,6 +3,7 @@ package radiussrv
 import (
 	"crypto/rand"
 	"fmt"
+	"sync"
 )
 
 type ChallengeSession struct {
@@ -11,7 +12,8 @@ type ChallengeSession struct {
 }
 
 type ChallengeStateStore struct {
-	m map[string]ChallengeSession
+	mu sync.RWMutex
+	m  map[string]ChallengeSession
 }
 
 func NewChallengeStateStore() *ChallengeStateStore {
@@ -19,24 +21,28 @@ func NewChallengeStateStore() *ChallengeStateStore {
 }
 
 func (s *ChallengeStateStore) Get(state string) (ChallengeSession, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
 	sess, ok := s.m[state]
 	return sess, ok
 }
 
 func (s *ChallengeStateStore) Set(state string, sess ChallengeSession) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	s.m[state] = sess
 }
 
 func (s *ChallengeStateStore) Delete(state string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	delete(s.m, state)
 }
 
-func GenerateRandomState() string {
+func GenerateRandomState() (string, error) {
 	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		for i := range b {
-			b[i] = byte(65 + i)
-		}
+		return "", fmt.Errorf("failed to generate random state: %w", err)
 	}
-	return fmt.Sprintf("%x", b)
+	return fmt.Sprintf("%x", b), nil
 }

@@ -31,7 +31,7 @@ func (k *KeycloakAPI) GetAdminToken() (string, error) {
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	if resp.StatusCode != 200 {
-		return "", fmt.Errorf("keycloak admin token error: %s", string(body))
+		return "", fmt.Errorf("keycloak admin token error: status %d", resp.StatusCode)
 	}
 	var result map[string]interface{}
 	if err := json.Unmarshal(body, &result); err != nil {
@@ -39,7 +39,7 @@ func (k *KeycloakAPI) GetAdminToken() (string, error) {
 	}
 	token, ok := result["access_token"].(string)
 	if !ok {
-		return "", fmt.Errorf("no access_token in admin token response: %s", string(body))
+		return "", fmt.Errorf("no access_token in admin token response")
 	}
 	return token, nil
 }
@@ -57,7 +57,7 @@ func (k *KeycloakAPI) AuthenticateUser(username, password string, otp ...string)
 	if len(otp) > 0 && otp[0] != "" {
 		data.Set("totp", otp[0])
 	}
-	fmt.Printf("[DEBUG] Keycloak Auth Request: %s\n", data.Encode())
+	fmt.Printf("[DEBUG] Keycloak Auth Request for user: %s\n", username)
 	fmt.Printf("[DEBUG] Keycloak Token URL: %s\n", k.TokenURL)
 	resp, err := k.HTTPClient.PostForm(k.TokenURL, data)
 	if err != nil {
@@ -66,17 +66,16 @@ func (k *KeycloakAPI) AuthenticateUser(username, password string, otp ...string)
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	fmt.Printf("[DEBUG] Keycloak Response Status: %d\n", resp.StatusCode)
-	fmt.Printf("[DEBUG] Keycloak Response Body: %s\n", string(body))
 	if resp.StatusCode == 200 {
 		var result map[string]interface{}
 		if err := json.Unmarshal(body, &result); err != nil {
-			return true, nil, nil
+			return false, nil, fmt.Errorf("failed to parse keycloak response: %w", err)
 		}
 		accessToken, _ := result["access_token"].(string)
 		roles := extractRolesFromJWT(accessToken)
 		return true, roles, nil
 	}
-	return false, nil, fmt.Errorf("keycloak auth failed: %s", string(body))
+	return false, nil, fmt.Errorf("keycloak auth failed: status %d", resp.StatusCode)
 }
 
 // extractRolesFromJWT decodes the JWT payload and extracts realm roles, groups, and scopes.
@@ -122,8 +121,11 @@ func (k *KeycloakAPI) HasOTP(username string) (bool, error) {
 	if err != nil {
 		return false, err
 	}
-	url := fmt.Sprintf("%s/users?username=%s", k.APIURL, url.QueryEscape(username))
-	req, _ := http.NewRequest("GET", url, nil)
+	reqURL := fmt.Sprintf("%s/users?username=%s", k.APIURL, url.QueryEscape(username))
+	req, err := http.NewRequest("GET", reqURL, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create user lookup request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err := k.HTTPClient.Do(req)
 	if err != nil {
@@ -137,7 +139,10 @@ func (k *KeycloakAPI) HasOTP(username string) (bool, error) {
 	userID, _ := users[0]["id"].(string)
 	// Get credentials for user
 	credURL := fmt.Sprintf("%s/users/%s/credentials", k.APIURL, userID)
-	req, _ = http.NewRequest("GET", credURL, nil)
+	req, err = http.NewRequest("GET", credURL, nil)
+	if err != nil {
+		return false, fmt.Errorf("failed to create credentials request: %w", err)
+	}
 	req.Header.Set("Authorization", "Bearer "+token)
 	resp, err = k.HTTPClient.Do(req)
 	if err != nil {

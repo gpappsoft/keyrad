@@ -39,7 +39,6 @@ func main() {
 	var disableMessageAuthenticator bool
 	var disableChallengeResponse bool
 	var debug bool
-	var mschapEnabled bool
 	var papEnabled bool
 
 	flag.StringVar(&keycloakConfigPath, "c", "keyrad.yaml", "Path to keyrad.yaml config file")
@@ -48,8 +47,7 @@ func main() {
 	flag.BoolVar(&disableChallengeResponse, "disable-challenge-response", false, "Disable RADIUS challenge-response and use <password><otp> style for OTP users")
 	flag.BoolVar(&debug, "debug", false, "Enable debug output for RADIUS and Keycloak communication")
 	flag.BoolVar(&showVersion, "version", false, "Show version and author information")
-	flag.BoolVar(&mschapEnabled, "mschap", true, "Enable MS-CHAPv2 authentication")
-	flag.BoolVar(&papEnabled, "pap", true, "Enable PAP authentication")
+flag.BoolVar(&papEnabled, "pap", true, "Enable PAP authentication")
 	flag.Parse()
 	if showVersion {
 		fmt.Printf("keyrad version %s\nAuthor: %s\n", Version, Author)
@@ -103,7 +101,6 @@ func main() {
 		DisableMsgAuth:   disableMessageAuthenticator,
 		DisableChallenge: disableChallengeResponse,
 		Debug:            debug,
-		MSCHAPEnabled:    mschapEnabled,
 		PAPEnabled:       papEnabled,
 	}
 	listenAddr := keycloakConfig.ListenAddr

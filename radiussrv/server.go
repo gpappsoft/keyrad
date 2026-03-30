@@ -21,9 +21,6 @@ import (
 
 const (
 	MessageAuthenticatorType = 80
-	MSCHAPChallengeType      = 11
-	MSCHAP2ResponseType      = 25
-	MSCHAP2SuccessType       = 26
 )
 
 type Server struct {
@@ -34,7 +31,6 @@ type Server struct {
 	DisableMsgAuth      bool
 	DisableChallenge    bool
 	Debug               bool
-	MSCHAPEnabled       bool
 	PAPEnabled          bool
 	ChallengeStateStore *ChallengeStateStore
 }
@@ -126,37 +122,6 @@ func encodeAttributeValue(value, valueType string) []byte {
 }
 
 func (s *Server) HandlePacket(packet *radius.Packet, addr net.Addr, conn *net.UDPConn, secret []byte) {
-	if s.MSCHAPEnabled {
-		if s.Debug {
-			log.Printf("[DEBUG] Handling MS-CHAPv2 for %v", addr)
-		}
-		usernameRaw := packet.Get(1) // User-Name
-		challenge := packet.Get(MSCHAPChallengeType)
-		response := packet.Get(MSCHAP2ResponseType)
-		username := string(usernameRaw)
-		if len(challenge) > 0 && len(response) > 0 {
-			ok, _, _, errMsg := ValidateMSCHAPv2(challenge, response, username, "testpass") // Replace with real password lookup
-			var resp *radius.Packet
-			if ok {
-				if s.Debug {
-					log.Printf("[DEBUG] MS-CHAPv2 success for %s", username)
-				}
-				resp = radius.New(radius.CodeAccessAccept, secret)
-			} else {
-				if s.Debug {
-					log.Printf("[DEBUG] MS-CHAPv2 failed for %s: %s", username, errMsg)
-				}
-				resp = radius.New(radius.CodeAccessReject, secret)
-			}
-			resp.Identifier = packet.Identifier
-			resp.Authenticator = packet.Authenticator // Set authenticator for response
-			b, err := resp.Encode()
-			if err == nil {
-				conn.WriteTo(b, addr)
-			}
-			return
-		}
-	}
 	if s.PAPEnabled {
 		if s.Debug {
 			log.Printf("[DEBUG] Handling PAP for %v", addr)
@@ -449,4 +414,3 @@ func ValidateOTP(username, otp string, kc *keycloak.KeycloakAPI) bool {
 	return false
 }
 
-// ...move MS-CHAPv2, challenge state, and utility functions here...

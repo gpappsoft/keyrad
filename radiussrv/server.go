@@ -3,11 +3,15 @@ package radiussrv
 import (
 	"crypto/md5"
 	"crypto/tls"
+	"encoding/binary"
 	"fmt"
 	"log"
 	"net"
 	"net/http"
 	"net/url"
+	"regexp"
+	"strconv"
+	"strings"
 
 	"layeh.com/radius"
 
@@ -33,6 +37,92 @@ type Server struct {
 	MSCHAPEnabled       bool
 	PAPEnabled          bool
 	ChallengeStateStore *ChallengeStateStore
+}
+
+// addScopeAttributes adds RADIUS attributes (standard and vendor-specific) to the
+// response packet based on the user's roles/groups/scopes matched against the scope_radius_map.
+func (s *Server) addScopeAttributes(resp *radius.Packet, userRoles []string) {
+	if s.ScopeRadiusMap == nil || len(userRoles) == 0 {
+		return
+	}
+	for scopeKey, attrs := range s.ScopeRadiusMap {
+		matched := false
+		if strings.HasPrefix(scopeKey, "re:") {
+			pattern := strings.TrimPrefix(scopeKey, "re:")
+			re, err := regexp.Compile(pattern)
+			if err != nil {
+				if s.Debug {
+					log.Printf("[DEBUG] Invalid regex in scope_radius_map: %s: %v", pattern, err)
+				}
+				continue
+			}
+			for _, role := range userRoles {
+				if re.MatchString(role) {
+					matched = true
+					break
+				}
+			}
+		} else {
+			for _, role := range userRoles {
+				if role == scopeKey {
+					matched = true
+					break
+				}
+			}
+		}
+		if !matched {
+			continue
+		}
+		for _, attr := range attrs {
+			value := encodeAttributeValue(attr.Value, attr.ValueType)
+			if attr.Vendor > 0 {
+				// Vendor-Specific Attribute: encode as sub-attribute TLV
+				subAttr := make([]byte, 2+len(value))
+				subAttr[0] = byte(attr.Attribute)
+				subAttr[1] = byte(2 + len(value))
+				copy(subAttr[2:], value)
+				vsa, err := radius.NewVendorSpecific(attr.Vendor, radius.Attribute(subAttr))
+				if err != nil {
+					if s.Debug {
+						log.Printf("[DEBUG] Failed to encode VSA vendor=%d attr=%d: %v", attr.Vendor, attr.Attribute, err)
+					}
+					continue
+				}
+				resp.Add(26, vsa)
+				if s.Debug {
+					log.Printf("[DEBUG] Added VSA: vendor=%d, attribute=%d, value=%s", attr.Vendor, attr.Attribute, attr.Value)
+				}
+			} else {
+				resp.Add(radius.Type(attr.Attribute), value)
+				if s.Debug {
+					log.Printf("[DEBUG] Added attribute: type=%d, value=%s", attr.Attribute, attr.Value)
+				}
+			}
+		}
+	}
+}
+
+func encodeAttributeValue(value, valueType string) []byte {
+	switch valueType {
+	case "integer":
+		n, err := strconv.ParseUint(value, 10, 32)
+		if err != nil {
+			return []byte(value)
+		}
+		b := make([]byte, 4)
+		binary.BigEndian.PutUint32(b, uint32(n))
+		return b
+	case "ipaddr":
+		ip := net.ParseIP(value)
+		if ip != nil {
+			if ip4 := ip.To4(); ip4 != nil {
+				return []byte(ip4)
+			}
+		}
+		return []byte(value)
+	default:
+		return []byte(value)
+	}
 }
 
 func (s *Server) HandlePacket(packet *radius.Packet, addr net.Addr, conn *net.UDPConn, secret []byte) {
@@ -112,12 +202,13 @@ func (s *Server) HandlePacket(packet *radius.Packet, addr net.Addr, conn *net.UD
 								log.Printf("[DEBUG] Found challenge state for %s", sess.Username)
 							}
 							otp = password // In challenge-response, password field contains OTP
-							ok, err := s.Keycloak.AuthenticateUser(sess.Username, sess.Password, otp)
+							ok, roles, err := s.Keycloak.AuthenticateUser(sess.Username, sess.Password, otp)
 							var resp *radius.Packet
 							if ok && err == nil {
 								resp = radius.New(radius.CodeAccessAccept, secret)
+								s.addScopeAttributes(resp, roles)
 								if s.Debug {
-									log.Printf("[DEBUG] OTP challenge success for %s", sess.Username)
+									log.Printf("[DEBUG] OTP challenge success for %s (roles: %v)", sess.Username, roles)
 								}
 							} else {
 								resp = radius.New(radius.CodeAccessReject, secret)
@@ -147,14 +238,15 @@ func (s *Server) HandlePacket(packet *radius.Packet, addr net.Addr, conn *net.UD
 					if s.Debug {
 						log.Printf("[DEBUG] Split password: '%s', otp: '%s'", userPassword, otp)
 					}
-					ok, err := s.Keycloak.AuthenticateUser(username, userPassword, otp)
+					ok, roles, err := s.Keycloak.AuthenticateUser(username, userPassword, otp)
 					otpOk := ok && err == nil
 					var resp *radius.Packet
 					if ok && otpOk {
 						if s.Debug {
-							log.Printf("[DEBUG] PAP+OTP success for %s (Keycloak)", username)
+							log.Printf("[DEBUG] PAP+OTP success for %s (Keycloak, roles: %v)", username, roles)
 						}
 						resp = radius.New(radius.CodeAccessAccept, secret)
+						s.addScopeAttributes(resp, roles)
 					} else {
 						if s.Debug {
 							log.Printf("[DEBUG] PAP+OTP failed for %s: %v", username, err)
@@ -192,13 +284,14 @@ func (s *Server) HandlePacket(packet *radius.Packet, addr net.Addr, conn *net.UD
 				}
 			} else {
 				// Standard PAP (no OTP)
-				ok, err := s.Keycloak.AuthenticateUser(username, password)
+				ok, roles, err := s.Keycloak.AuthenticateUser(username, password)
 				var resp *radius.Packet
 				if ok {
 					if s.Debug {
-						log.Printf("[DEBUG] PAP success for %s (Keycloak)", username)
+						log.Printf("[DEBUG] PAP success for %s (Keycloak, roles: %v)", username, roles)
 					}
 					resp = radius.New(radius.CodeAccessAccept, secret)
+					s.addScopeAttributes(resp, roles)
 				} else {
 					if s.Debug {
 						log.Printf("[DEBUG] PAP failed for %s: %v", username, err)

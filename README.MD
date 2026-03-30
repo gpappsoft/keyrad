@@ -1,6 +1,6 @@
 # keyrad: Keycloak RADIUS Server
 
-A Go-based RADIUS server that authenticates users against Keycloak, supporting password and OTP (TOTP) flows. 
+A Go-based RADIUS server that authenticates users against Keycloak, supporting password and OTP (TOTP) flows.
 
 Features include:
 - Challenge-response for OTP
@@ -8,6 +8,7 @@ Features include:
 - FreeRADIUS-style `clients.conf` for client secrets
 - Optional Message-Authenticator
 - Scope/group-to-RADIUS attribute mapping (with regexp support)
+- **Vendor-Specific Attributes (VSA):** Return vendor-specific attributes (e.g. MikroTik, Cisco, Ubiquiti) in Access-Accept responses based on user roles, groups, or scopes
 - **Configurable OTP mode:** Use standard challenge-response or <password><otp> style
 - **Configurable OTP challenge message** via `otp_challenge_message` in config
 - **Asynchronous/multi-request support:** Multiple RADIUS requests are handled concurrently for high performance
@@ -41,11 +42,78 @@ go build -o keyrad main.go
   - Users must have credentials set for password or OTP (TOTP) as desired.
   - To use OTP, users must enroll an OTP device in Keycloak.
 
-### Configuration
-See `clients.conf` and `keyrad.yaml`.
+### 2. keyrad.yaml
+See `keyrad.yaml` for a full example.
 
 - To customize the OTP challenge message, add `otp_challenge_message: "Your custom message"` to `keyrad.yaml`.
-- The server now supports multiple concurrent RADIUS requests for high performance (async worker pool, default 8 workers).
+- The server supports multiple concurrent RADIUS requests (async worker pool, default 8 workers).
+
+### 3. clients.conf
+FreeRADIUS-style client definitions. See `clients.conf` for the format.
+
+### 4. Scope-to-RADIUS Attribute Mapping
+
+Map Keycloak realm roles, groups, or OAuth2 scopes to RADIUS attributes returned in Access-Accept responses. Supports both standard RADIUS attributes and Vendor-Specific Attributes (VSA).
+
+After successful authentication, keyrad extracts the user's roles, groups, and scopes from the Keycloak JWT access token and matches them against the `scope_radius_map` keys.
+
+#### Configuration format
+
+```yaml
+scope_radius_map:
+  # Exact match against role/group/scope name
+  admin:
+    - attribute: 6        # Service-Type
+      value: "6"          # Administrative-User
+      value_type: integer
+
+  # Multiple attributes per scope
+  vpn:
+    - attribute: 8        # Framed-IP-Address
+      value: "10.0.0.1"
+      value_type: ipaddr
+    - vendor: 14988       # MikroTik Vendor ID
+      attribute: 3        # Mikrotik-Group
+      value: "full"
+
+  # Vendor-Specific Attributes (VSA)
+  wifi:
+    - vendor: 14988       # MikroTik
+      attribute: 8        # Mikrotik-Rate-Limit
+      value: "10M/10M"
+
+  # Regex matching with "re:" prefix
+  re:^group_.*:
+    - attribute: 11       # Filter-Id
+      value: "group-member"
+```
+
+#### Attribute fields
+
+| Field        | Required | Description                                                        |
+|--------------|----------|--------------------------------------------------------------------|
+| `vendor`     | No       | IANA vendor ID. Omit or set to `0` for standard RADIUS attributes. |
+| `attribute`  | Yes      | Attribute type number.                                             |
+| `value`      | Yes      | Attribute value.                                                   |
+| `value_type` | No       | Encoding type: `string` (default), `integer`, or `ipaddr`.        |
+
+#### Common vendor IDs
+
+| Vendor   | ID    | Reference                                                    |
+|----------|-------|--------------------------------------------------------------|
+| Cisco    | 9     | [Cisco VSA documentation](https://www.cisco.com)             |
+| Microsoft| 311   | RFC 2548                                                     |
+| MikroTik | 14988 | [MikroTik RADIUS dictionary](https://help.mikrotik.com/docs/spaces/ROS/pages/328097/RADIUS) |
+| Ubiquiti | 41112 | Ubiquiti RADIUS dictionary                                   |
+
+#### Keycloak setup for scope/group matching
+
+For roles and scopes, no extra Keycloak configuration is needed -- they are included in the JWT by default.
+
+For **group-based matching**, add a "groups" protocol mapper to your Keycloak client:
+1. Go to your client's **Client Scopes** > **Dedicated scope** > **Add mapper** > **By configuration** > **Group Membership**.
+2. Set **Token Claim Name** to `groups`.
+3. Disable **Full group path** if you want short group names.
 
 ## Usage
 
@@ -67,7 +135,8 @@ radtest testuser password 127.0.0.1 0 test
 ## Advanced Features
 - **Challenge-response**: Standard RADIUS Access-Challenge for OTP, or disable for legacy OTP style.
 - **Configurable OTP challenge message**: Set `otp_challenge_message` in your config for custom challenge text.
-- **Scope/group mapping**: Map Keycloak OAuth2 scopes or group memberships to RADIUS attributes. Supports regexp keys (e.g. `re:^group_.*`).
+- **Scope/group mapping**: Map Keycloak realm roles, groups, or OAuth2 scopes to RADIUS attributes. Supports regexp keys (e.g. `re:^group_.*`).
+- **Vendor-Specific Attributes (VSA)**: Return vendor-specific attributes in Access-Accept based on user roles/groups. Supports any vendor by IANA vendor ID (e.g. MikroTik 14988, Cisco 9, Microsoft 311).
 - **TLS verification**: Set `insecure_skip_tls_verify: true` for self-signed Keycloak certs.
 - **Asynchronous/multi-request support**: Multiple RADIUS requests are handled concurrently for high performance.
 

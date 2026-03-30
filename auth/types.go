@@ -13,10 +13,14 @@ type ClientConfig struct {
 	IPAddr    string
 }
 
-type ScopeRadiusMapping map[string]struct {
-	Attribute int    `yaml:"attribute"`
-	Value     string `yaml:"value"`
+type RadiusAttribute struct {
+	Vendor    uint32 `yaml:"vendor"`     // Vendor ID (0 = standard attribute)
+	Attribute int    `yaml:"attribute"`  // Attribute type number
+	Value     string `yaml:"value"`      // Attribute value
+	ValueType string `yaml:"value_type"` // "string" (default), "integer", "ipaddr"
 }
+
+type ScopeRadiusMapping map[string][]RadiusAttribute
 
 func ParseClientsConf(path string) (map[string]ClientConfig, error) {
 	file, err := os.Open(path)

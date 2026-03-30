@@ -6,23 +6,41 @@ api_url: "https://<>/admin/realms/<>" # this is the admin API URL
 insecure_skip_tls_verify: false
 otp_challenge_message: "Please enter your OTP code"
 
-# RADIUS attribute mappings based on user scopes
+# RADIUS attribute mappings based on user roles/groups/scopes.
+# Each scope key maps to a list of attributes (standard or vendor-specific).
+# Scope keys are matched against Keycloak realm roles, groups, and OAuth2 scopes.
+# Use "re:" prefix for regex matching (e.g. "re:^group_.*").
+#
+# Attribute fields:
+#   vendor:     Vendor ID (omit or 0 for standard attributes)
+#   attribute:  Attribute type number
+#   value:      Attribute value
+#   value_type: "string" (default), "integer", or "ipaddr"
 scope_radius_map:
   admin:
-    attribute: 6   # Service-Type
-    value: "6"     # Administrative-User
+    - attribute: 6        # Service-Type
+      value: "6"          # Administrative-User
+      value_type: integer
   vpn:
-    attribute: 8   # Framed-IP-Address
-    value: "10.0.0.1"
+    - attribute: 8        # Framed-IP-Address
+      value: "10.0.0.1"
+      value_type: ipaddr
+    - vendor: 14988       # MikroTik
+      attribute: 3        # Mikrotik-Group
+      value: "full"
   wifi:
-    attribute: 64  # Tunnel-Type
-    value: "VLAN"
+    - attribute: 64       # Tunnel-Type
+      value: "13"         # VLAN
+      value_type: integer
+    - vendor: 14988       # MikroTik
+      attribute: 8        # Mikrotik-Rate-Limit
+      value: "10M/10M"
   group_admins:
-    attribute: 11  # Filter-Id
-    value: "admins"
+    - attribute: 11       # Filter-Id
+      value: "admins"
   re:^group_.*:
-    attribute: 11
-    value: "group-member"
+    - attribute: 11       # Filter-Id
+      value: "group-member"
 
 # Example: Listen on a specific interface/port
 listen_addr: "127.0.0.1:1812"

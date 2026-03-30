@@ -1,11 +1,13 @@
 package keycloak
 
 import (
+	"encoding/base64"
 	"encoding/json"
 	"fmt"
 	"io"
 	"net/http"
 	"net/url"
+	"strings"
 )
 
 type KeycloakAPI struct {
@@ -42,8 +44,10 @@ func (k *KeycloakAPI) GetAdminToken() (string, error) {
 	return token, nil
 }
 
-// AuthenticateUser checks username/password (and optional OTP) against Keycloak
-func (k *KeycloakAPI) AuthenticateUser(username, password string, otp ...string) (bool, error) {
+// AuthenticateUser checks username/password (and optional OTP) against Keycloak.
+// Returns (ok, userRoles, error) where userRoles are extracted from the JWT access token
+// and include realm roles, groups, and OAuth2 scopes.
+func (k *KeycloakAPI) AuthenticateUser(username, password string, otp ...string) (bool, []string, error) {
 	data := url.Values{}
 	data.Set("grant_type", "password")
 	data.Set("client_id", k.ClientID)
@@ -57,16 +61,59 @@ func (k *KeycloakAPI) AuthenticateUser(username, password string, otp ...string)
 	fmt.Printf("[DEBUG] Keycloak Token URL: %s\n", k.TokenURL)
 	resp, err := k.HTTPClient.PostForm(k.TokenURL, data)
 	if err != nil {
-		return false, err
+		return false, nil, err
 	}
 	defer resp.Body.Close()
 	body, _ := io.ReadAll(resp.Body)
 	fmt.Printf("[DEBUG] Keycloak Response Status: %d\n", resp.StatusCode)
 	fmt.Printf("[DEBUG] Keycloak Response Body: %s\n", string(body))
 	if resp.StatusCode == 200 {
-		return true, nil
+		var result map[string]interface{}
+		if err := json.Unmarshal(body, &result); err != nil {
+			return true, nil, nil
+		}
+		accessToken, _ := result["access_token"].(string)
+		roles := extractRolesFromJWT(accessToken)
+		return true, roles, nil
 	}
-	return false, fmt.Errorf("keycloak auth failed: %s", string(body))
+	return false, nil, fmt.Errorf("keycloak auth failed: %s", string(body))
+}
+
+// extractRolesFromJWT decodes the JWT payload and extracts realm roles, groups, and scopes.
+func extractRolesFromJWT(token string) []string {
+	parts := strings.Split(token, ".")
+	if len(parts) != 3 {
+		return nil
+	}
+	payload := parts[1]
+	// Add base64 padding if needed
+	switch len(payload) % 4 {
+	case 2:
+		payload += "=="
+	case 3:
+		payload += "="
+	}
+	decoded, err := base64.URLEncoding.DecodeString(payload)
+	if err != nil {
+		return nil
+	}
+	var claims struct {
+		RealmAccess struct {
+			Roles []string `json:"roles"`
+		} `json:"realm_access"`
+		Groups []string `json:"groups"`
+		Scope  string   `json:"scope"`
+	}
+	if err := json.Unmarshal(decoded, &claims); err != nil {
+		return nil
+	}
+	var roles []string
+	roles = append(roles, claims.RealmAccess.Roles...)
+	roles = append(roles, claims.Groups...)
+	if claims.Scope != "" {
+		roles = append(roles, strings.Split(claims.Scope, " ")...)
+	}
+	return roles
 }
 
 // HasOTP returns true if the user has an OTP authenticator assigned in Keycloak

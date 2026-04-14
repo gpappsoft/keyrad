@@ -1,4 +1,4 @@
-package auth
+package radiussrv
 
 import (
 	"bufio"
@@ -7,12 +7,14 @@ import (
 	"strings"
 )
 
+// ClientConfig holds shared secret and display metadata for one RADIUS client entry.
 type ClientConfig struct {
 	Secret    string
 	ShortName string
 	IPAddr    string
 }
 
+// RadiusAttribute describes one attribute to add to an Access-Accept when scopes match.
 type RadiusAttribute struct {
 	Vendor    uint32 `yaml:"vendor"`     // Vendor ID (0 = standard attribute)
 	Attribute int    `yaml:"attribute"`  // Attribute type number
@@ -20,8 +22,11 @@ type RadiusAttribute struct {
 	ValueType string `yaml:"value_type"` // "string" (default), "integer", "ipaddr"
 }
 
+// ScopeRadiusMapping maps a scope name, group name, or regex pattern (prefix "re:") to RADIUS attributes.
 type ScopeRadiusMapping map[string][]RadiusAttribute
 
+// ParseClientsConf reads a FreeRADIUS-style clients.conf file and returns a map keyed by
+// ipaddr when set, otherwise by the client block name.
 func ParseClientsConf(path string) (map[string]ClientConfig, error) {
 	file, err := os.Open(path)
 	if err != nil {

@@ -1,0 +1,16 @@
+# Example only — copy/adjust paths and image.
+services:
+  keyrad:
+    image: keyrad:latest
+    container_name: keyrad_svc
+    volumes:
+      - ./keyrad.yaml:/app/keyrad.yaml:ro
+      - ./clients.conf:/app/clients.conf:ro
+    restart: always
+    #ports:
+    #  - "1812:1812/udp"
+    # Optional: more verbose logs (RADIUS + Keycloak details).
+    command: ["/app/keyrad", "-debug", "-c", "/app/keyrad.yaml", "-r", "/app/clients.conf"]
+    # Linux: to see real NAS source IPs (and avoid NAT changing the client IP), you can instead use:
+    network_mode: "host"
+    # and remove `ports:` (keyrad binds 0.0.0.0:1812 on the host network stack).

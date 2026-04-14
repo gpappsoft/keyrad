@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 Marco Moenig <marco@sec73.io>
+ * Copyright 2026 Marco Moenig <marco@sec73.io>, Oleg Ermoshkin <o@ermoshkin.com>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -14,25 +14,52 @@
  * limitations under the License.
  */
 
-// main.go for keyrad: only config, flag parsing, and server startup
+// Keyrad is the RADIUS authentication daemon entrypoint: YAML and clients.conf loading,
+// Keycloak client construction, and UDP RADIUS listener startup.
 package main
 
 import (
+	"crypto/tls"
 	"flag"
 	"fmt"
-	"keyrad/auth"
+	"log"
+	"net/http"
+	"os"
+	"time"
+
+	"go.uber.org/zap"
+	"go.uber.org/zap/zapcore"
+
 	"keyrad/keycloak"
 	"keyrad/radiussrv"
-	"log"
-	"os"
 
 	"gopkg.in/yaml.v3"
 )
 
-const Version = "1.1.1"
-const Author = "Marco Moenig <marco@sec73.io>"
+const Version = "2.0.0"
+const Author = "Marco Moenig <marco@sec73.io>, Oleg Ermoshkin <o@ermoshkin.com>"
 
 func main() {
+	var zapcfg zap.Config
+	zapcfg.Level = zap.NewAtomicLevelAt(zap.InfoLevel)
+	zapcfg.Encoding = "json"
+	zapcfg.OutputPaths = []string{"stdout"}
+	zapcfg.ErrorOutputPaths = []string{"stderr"}
+	zapcfg.EncoderConfig = zapcore.EncoderConfig{
+		TimeKey:        "time",
+		LevelKey:       "level",
+		NameKey:        "logger",
+		CallerKey:      "caller",
+		FunctionKey:    zapcore.OmitKey,
+		MessageKey:     "msg",
+		StacktraceKey:  "stacktrace",
+		LineEnding:     zapcore.DefaultLineEnding,
+		EncodeLevel:    zapcore.CapitalLevelEncoder,
+		EncodeTime:     zapcore.ISO8601TimeEncoder,
+		EncodeDuration: zapcore.StringDurationEncoder,
+		EncodeCaller:   zapcore.ShortCallerEncoder,
+	}
+
 	var keycloakConfigPath string
 	var clientsConfPath string
 	var showVersion bool
@@ -54,17 +81,27 @@ func main() {
 		os.Exit(0)
 	}
 
+	if debug {
+		zapcfg.Level = zap.NewAtomicLevelAt(zap.DebugLevel)
+	}
+
+	logger, err := zapcfg.Build()
+	if err != nil {
+		log.Fatalf("can't initialize zap logger: %v", err)
+	}
+	defer logger.Sync()
+
 	// Load Keycloak config from YAML
 	var keycloakConfig struct {
-		TokenURL              string                  `yaml:"token_url"`
-		ClientID              string                  `yaml:"client_id"`
-		ClientSecret          string                  `yaml:"client_secret"`
-		Realm                 string                  `yaml:"realm"`
-		APIURL                string                  `yaml:"api_url"`
-		InsecureSkipTLSVerify bool                    `yaml:"insecure_skip_tls_verify"`
-		ScopeRadiusMap        auth.ScopeRadiusMapping `yaml:"scope_radius_map"`
-		OTPChallengeMessage   string                  `yaml:"otp_challenge_message"`
-		ListenAddr            string                  `yaml:"listen_addr"`
+		TokenURL              string                       `yaml:"token_url"`
+		ClientID              string                       `yaml:"client_id"`
+		ClientSecret          string                       `yaml:"client_secret"`
+		Realm                 string                       `yaml:"realm"`
+		APIURL                string                       `yaml:"api_url"`
+		InsecureSkipTLSVerify bool                         `yaml:"insecure_skip_tls_verify"`
+		ScopeRadiusMap        radiussrv.ScopeRadiusMapping `yaml:"scope_radius_map"`
+		OTPChallengeMessage   string                       `yaml:"otp_challenge_message"`
+		ListenAddr            string                       `yaml:"listen_addr"`
 	}
 	f, err := os.Open(keycloakConfigPath)
 	if err != nil {
@@ -77,7 +114,7 @@ func main() {
 	}
 
 	// Load clients.conf
-	clients, err := auth.ParseClientsConf(clientsConfPath)
+	clients, err := radiussrv.ParseClientsConf(clientsConfPath)
 	if err != nil {
 		log.Fatalf("Failed to parse %s: %v", clientsConfPath, err)
 	}
@@ -89,7 +126,8 @@ func main() {
 		ClientSecret: keycloakConfig.ClientSecret,
 		Realm:        keycloakConfig.Realm,
 		APIURL:       keycloakConfig.APIURL,
-		HTTPClient:   radiussrv.GetHTTPClient(keycloakConfig.InsecureSkipTLSVerify),
+		HTTPClient:   getHTTPClient(keycloakConfig.InsecureSkipTLSVerify),
+		Logger:       logger,
 	}
 
 	// Create and start RADIUS server
@@ -100,17 +138,37 @@ func main() {
 		OTPChallengeMsg:  keycloakConfig.OTPChallengeMessage,
 		DisableMsgAuth:   disableMessageAuthenticator,
 		DisableChallenge: disableChallengeResponse,
-		Debug:            debug,
 		PAPEnabled:       papEnabled,
+		Logger:           logger,
 	}
 	listenAddr := keycloakConfig.ListenAddr
 	if listenAddr == "" {
 		listenAddr = "0.0.0.0:1812"
 	}
-	if debug {
-		log.Printf("[DEBUG] Listening on %s", listenAddr)
-	}
+
+	// Info (not Debug): visible under default log level in Docker/Kubernetes without -debug.
+	logger.Info("keyrad starting",
+		zap.String("version", Version),
+		zap.String("listen_addr", listenAddr),
+		zap.String("config", keycloakConfigPath),
+		zap.String("clients_conf", clientsConfPath),
+		zap.Bool("pap", papEnabled),
+		zap.Bool("debug_flag", debug),
+	)
+
 	if err := srv.ListenAndServe(listenAddr); err != nil {
 		log.Fatalf("RADIUS server error: %v", err)
+	}
+}
+
+// getHTTPClient returns an HTTP client with a 30s timeout and optional TLS certificate verification skip.
+func getHTTPClient(insecureSkipTLSVerify bool) *http.Client {
+	tr := http.DefaultTransport.(*http.Transport).Clone()
+	if insecureSkipTLSVerify {
+		tr.TLSClientConfig = &tls.Config{InsecureSkipVerify: true}
+	}
+	return &http.Client{
+		Transport: tr,
+		Timeout:   30 * time.Second,
 	}
 }

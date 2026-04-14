@@ -140,11 +140,23 @@ radtest testuser password 127.0.0.1 0 test
 - **TLS verification**: Set `insecure_skip_tls_verify: true` for self-signed Keycloak certs.
 - **Asynchronous/multi-request support**: Multiple RADIUS requests are handled concurrently for high performance.
 
+## Docker and Compose (UDP)
+
+- Set **`listen_addr: "0.0.0.0:1812"`** in `keyrad.yaml`. Binding to **`127.0.0.1`** only listens inside the container, so traffic published with **`ports: - "1812:1812/udp"`** never reaches the process.
+- Publish UDP explicitly, e.g. **`ports: ["1812:1812/udp"]`**.
+- **`clients.conf` matches the UDP source address keyrad sees.** With bridge networking that is often the **Docker gateway** (e.g. `172.17.0.1`) or another **RFC1918** address, **not** your NAS IP and **not** `127.0.0.1`. If nothing matches, keyrad logs at **Info**: `RADIUS: datagram received but no clients.conf match` with `remote_ip` — use that value to add a `client { }` block or a CIDR (see example `clients.conf` with `172.16.0.0/12` for lab; tighten in production).
+- On **Linux**, **`network_mode: host`** makes the original NAS source visible and avoids Docker UDP port mapping quirks; then do not rely on `ports:` for 1812. On **Docker Desktop (Mac/Windows)** host mode behaves differently; test from another container on the same user-defined network, or from the LAN to the host’s IP with a matching `clients.conf` entry for the observed `remote_ip`.
+- See **`docker-compose.example.yml`** for a minimal compose file.
+
 ## Troubleshooting
 - **403 errors**: Ensure your Keycloak client has the correct service account roles.
 - **Invalid Message-Authenticator**: Check shared secrets in `clients.conf` and your RADIUS client.
 - **OTP not working**: Ensure user has the credential enrolled in Keycloak.
 - **Legacy OTP**: If your client cannot handle RADIUS challenge-response, use `--disable-challenge-response`.
+
+## Known issues
+- The password is more than 16 characters. 
+Some devices use RADIUS 1.0 (RFC 2138), which limits passwords to 16 characters. For example: Checkpoint version < R81.10.00 - https://support.checkpoint.com/results/sk/sk13740
 
 ## Support
 If you need professional support, please write to

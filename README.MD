@@ -2,6 +2,8 @@
 
 A Go-based RADIUS server that authenticates users against Keycloak, supporting password and OTP (TOTP) flows.
 
+![Keyrad](/assets/keyrad.png)
+
 Features include:
 - Challenge-response for OTP
 - YAML-based Keycloak and RADIUS config

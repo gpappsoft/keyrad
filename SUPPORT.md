@@ -45,4 +45,4 @@ For pricing, scope, and custom SLA terms, contact us at:
 
 [info@sec73.io](mailto:info@sec73.io)
 
-[https://www.sec73.io](https://www.sec73.io)
+[https://www.sec73.io](https://www.sec73.io/keyrad/)

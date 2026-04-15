@@ -158,10 +158,12 @@ radtest testuser password 127.0.0.1 0 test
 - The password is more than 16 characters. 
 Some devices use RADIUS 1.0 (RFC 2138), which limits passwords to 16 characters. For example: Checkpoint version < R81.10.00 - https://support.checkpoint.com/results/sk/sk13740
 
-## Support
-If you need professional support, please write to
+## Professional Support
 
-[info@sec73.io](mailto:info@sec73.io)
+keyrad is open-source and free to use under the Apache 2.0 license.
+For production deployments, commercial support subscriptions with SLA are available.
+
+→ See [SUPPORT.md](SUPPORT.md) or contact [info@sec73.io](mailto:info@sec73.io)
 
 ## Disclaimer
 This project is provided as-is, without warranty of any kind. Use at your own risk. The maintainers are not responsible for any damage, data loss, or security issues resulting from the use or misuse of this software. Always review and test in a safe environment before deploying to production.

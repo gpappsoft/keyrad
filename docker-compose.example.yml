@@ -1,7 +1,7 @@
 # Example only — copy/adjust paths and image.
 services:
   keyrad:
-    image: keyrad:latest
+    image: gpappsoft/keyrad:latest
     container_name: keyrad_svc
     volumes:
       - ./keyrad.yaml:/app/keyrad.yaml:ro

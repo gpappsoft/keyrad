@@ -36,7 +36,7 @@ import (
 	"gopkg.in/yaml.v3"
 )
 
-const Version = "2.0.0"
+const Version = "2.0.1"
 const Author = "Marco Moenig <marco@sec73.io>, Oleg Ermoshkin <o@ermoshkin.com>"
 
 func main() {

@@ -26,6 +26,41 @@ cd keyrad
 go build -o keyrad main.go
 ```
 
+### FreeBSD / OPNsense
+
+OPNsense is based on FreeBSD, so the binary is built the same way. You have two options:
+
+**Option A — Build natively on FreeBSD (or an OPNsense box):**
+```sh
+# Install Go and git (FreeBSD pkg)
+pkg install -y go git
+
+git clone https://github.com/gpappsoft/keyrad.git
+cd keyrad
+go build -o keyrad main.go
+```
+
+> On OPNsense the package repository is locked down by default. Either build on a
+> separate FreeBSD machine matching your OPNsense major version (recommended for
+> appliances), or temporarily enable the FreeBSD repo to install `go`/`git`.
+
+**Option B — Cross-compile from Linux/macOS** (no Go toolchain needed on the firewall):
+```sh
+# Match the OPNsense architecture: amd64 for most x86 deployments, arm64 for ARM
+GOOS=freebsd GOARCH=amd64 go build -o keyrad-freebsd-amd64 main.go
+```
+
+Then copy the binary to the firewall and make it executable:
+```sh
+scp keyrad-freebsd-amd64 root@opnsense:/usr/local/bin/keyrad
+ssh root@opnsense chmod +x /usr/local/bin/keyrad
+```
+
+Place `keyrad.yaml` and `clients.conf` alongside the binary (e.g. `/usr/local/etc/keyrad/`)
+and start it with `keyrad -c /usr/local/etc/keyrad/keyrad.yaml -r /usr/local/etc/keyrad/clients.conf`.
+To run it persistently, add an rc.d service or a cron `@reboot` entry. The produced binary is
+statically linked and has no runtime dependencies.
+
 ## Configuration
 
 ### 1. Keycloak Setup

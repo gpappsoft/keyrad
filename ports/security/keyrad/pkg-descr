@@ -1,0 +1,7 @@
+keyrad is a Go-based RADIUS server that authenticates users against Keycloak,
+supporting password and OTP (TOTP) flows with challenge-response.
+
+This package installs the keyrad daemon binary (/usr/local/bin/keyrad). On
+OPNsense it is driven by the os-keyrad GUI plugin (Services > keyrad RADIUS),
+which generates the configuration and manages the service. The binary can also
+be run standalone with -c <config.yaml> -r <clients.conf>.

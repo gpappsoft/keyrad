@@ -23,8 +23,13 @@ Features include:
 ```bash
 git clone https://github.com/gpappsoft/keyrad.git
 cd keyrad
-go build -o keyrad main.go
+go build -o keyrad .
 ```
+
+> Build the **whole package** with `.` (or just `go build`). The `main` package spans
+> several files (`main.go`, `config.go`, ...), so `go build main.go` would compile only
+> that single file and fail with `undefined: LoadConfig` / `undefined:
+> ApplyRadiusClientSecretEnv`.
 
 ### FreeBSD / OPNsense
 
@@ -37,7 +42,7 @@ pkg install -y go git
 
 git clone https://github.com/gpappsoft/keyrad.git
 cd keyrad
-go build -o keyrad main.go
+go build -o keyrad .
 ```
 
 > On OPNsense the package repository is locked down by default. Either build on a
@@ -47,7 +52,7 @@ go build -o keyrad main.go
 **Option B — Cross-compile from Linux/macOS** (no Go toolchain needed on the firewall):
 ```sh
 # Match the OPNsense architecture: amd64 for most x86 deployments, arm64 for ARM
-GOOS=freebsd GOARCH=amd64 go build -o keyrad-freebsd-amd64 main.go
+GOOS=freebsd GOARCH=amd64 go build -o keyrad-freebsd-amd64 .
 ```
 
 Then copy the binary to the firewall and make it executable:

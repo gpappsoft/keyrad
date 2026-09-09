@@ -132,26 +132,54 @@ insecure_skip_tls_verify: false
 }
 
 func TestLoadConfigMissingRequiredFieldFailsClearly(t *testing.T) {
-	head := `
-token_url: "https://keycloak.example/realms/master/protocol/openid-connect/token"
-realm: "master"
-api_url: "https://keycloak.example/admin/realms/master"
-`
+	// base holds a fully-valid configuration; each case then empties, placeholders, or
+	// drops one key so validate() fails on exactly that field.
+	base := map[string]string{
+		"token_url":     "https://keycloak.example/realms/master/protocol/openid-connect/token",
+		"realm":         "master",
+		"api_url":       "https://keycloak.example/admin/realms/master",
+		"client_id":     "radius-client",
+		"client_secret": "very-long-client-secret",
+	}
+	fieldOrder := []string{"token_url", "realm", "api_url", "client_id", "client_secret"}
 	cases := []struct {
 		name     string
-		yaml     string
+		key      string // config key under test
+		value    string // value to set ("" + omit=false means an empty string)
+		omit     bool   // drop the key entirely instead of writing it
 		wantVar  string
 		wantFrag string
 	}{
-		{name: "secret omitted", yaml: "client_id: \"radius-client\"\n", wantVar: envKeycloakClientSecret, wantFrag: "client_secret"},
-		{name: "secret empty", yaml: "client_id: \"radius-client\"\nclient_secret: \"\"\n", wantVar: envKeycloakClientSecret, wantFrag: "client_secret"},
-		{name: "secret placeholder", yaml: "client_id: \"radius-client\"\nclient_secret: \"<>\"\n", wantVar: envKeycloakClientSecret, wantFrag: "client_secret"},
-		{name: "client_id placeholder", yaml: "client_id: \"<>\"\nclient_secret: \"secret\"\n", wantVar: envKeycloakClientID, wantFrag: "client_id"},
+		{name: "client_secret omitted", key: "client_secret", omit: true, wantVar: envKeycloakClientSecret, wantFrag: "client_secret"},
+		{name: "client_secret empty", key: "client_secret", value: "", wantVar: envKeycloakClientSecret, wantFrag: "client_secret"},
+		{name: "client_secret placeholder", key: "client_secret", value: "<>", wantVar: envKeycloakClientSecret, wantFrag: "client_secret"},
+		{name: "client_id placeholder", key: "client_id", value: "<>", wantVar: envKeycloakClientID, wantFrag: "client_id"},
+		{name: "token_url empty", key: "token_url", value: "", wantVar: envKeycloakTokenURL, wantFrag: "token_url"},
+		{name: "token_url half-filled placeholder", key: "token_url", value: "https://keycloak.example/realms/<>/protocol/openid-connect/token", wantVar: envKeycloakTokenURL, wantFrag: "token_url"},
+		{name: "realm empty", key: "realm", value: "", wantVar: envKeycloakRealm, wantFrag: "realm"},
+		{name: "realm placeholder", key: "realm", value: "<>", wantVar: envKeycloakRealm, wantFrag: "realm"},
+		{name: "api_url empty", key: "api_url", value: "", wantVar: envKeycloakAPIURL, wantFrag: "api_url"},
+		{name: "api_url half-filled placeholder", key: "api_url", value: "https://keycloak.example/admin/realms/<>", wantVar: envKeycloakAPIURL, wantFrag: "api_url"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
+			fields := make(map[string]string, len(base))
+			for k, v := range base {
+				fields[k] = v
+			}
+			if tc.omit {
+				delete(fields, tc.key)
+			} else {
+				fields[tc.key] = tc.value
+			}
+			var b strings.Builder
+			for _, k := range fieldOrder {
+				if v, ok := fields[k]; ok {
+					b.WriteString(k + ": \"" + v + "\"\n")
+				}
+			}
 			dir := t.TempDir()
-			yamlPath := writeTemp(t, dir, "keyrad.yaml", head+tc.yaml)
+			yamlPath := writeTemp(t, dir, "keyrad.yaml", b.String())
 			_, err := LoadConfig(yamlPath, envMapLookup(nil))
 			if err == nil {
 				t.Fatal("expected an error for missing required field, got nil")

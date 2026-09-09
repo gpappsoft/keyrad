@@ -1,22 +1,26 @@
-token_url: "https://<>/realms/<>/protocol/openid-connect/token"
-
+# Keycloak settings. client_id/client_secret are secrets; token_url, realm and api_url are
+# the endpoints keyrad talks to. ALL FIVE are required: if any is left empty or as the "<>"
+# placeholder below, keyrad refuses to start. token_url and api_url must be complete URLs
+# that already contain your realm (e.g. ".../realms/master/..."), because keyrad never
+# inserts `realm` into them.
+#
 # Secrets via environment variables (ENV wins over YAML):
 #   client_id     -> KEYRAD_KEYCLOAK_CLIENT_ID
 #   client_secret -> KEYRAD_KEYCLOAK_CLIENT_SECRET
-# For Docker/Kubernetes, keep this file free of plaintext secrets: leave the values
+#   token_url     -> KEYRAD_KEYCLOAK_TOKEN_URL
+#   realm         -> KEYRAD_KEYCLOAK_REALM
+#   api_url       -> KEYRAD_KEYCLOAK_API_URL
+# For Docker/Kubernetes, keep this file free of plaintext secrets: leave the secret values
 # empty ("") or as "<>" below and export the variables instead. If neither YAML nor ENV
-# provides client_id/client_secret, keyrad refuses to start. See README, "Secrets via
+# resolves every required field, keyrad refuses to start. See README, "Secrets via
 # Environment Variables".
+token_url: "https://<>/realms/<>/protocol/openid-connect/token"
 client_id: "<>"
 client_secret: "<>"
 realm: "<>"
 api_url: "https://<>/admin/realms/<>" # this is the admin API URL
 
-# These non-secret settings are also overridable via ENV if needed:
-#   token_url              -> KEYRAD_KEYCLOAK_TOKEN_URL
-#   realm                  -> KEYRAD_KEYCLOAK_REALM
-#   api_url                -> KEYRAD_KEYCLOAK_API_URL
-#   insecure_skip_tls_verify -> KEYRAD_KEYCLOAK_INSECURE_SKIP_TLS_VERIFY (true/false)
+# insecure_skip_tls_verify -> KEYRAD_KEYCLOAK_INSECURE_SKIP_TLS_VERIFY (true/false)
 insecure_skip_tls_verify: false
 otp_challenge_message: "Please enter your OTP code"
 

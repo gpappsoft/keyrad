@@ -119,16 +119,38 @@ func (c *Config) applyEnvOverrides(lookupEnv func(string) (string, bool)) error 
 	return nil
 }
 
-// validate makes sure the server never starts with empty or placeholder credentials, and
-// that any scope_radius_map entries have a valid value_type and value.
+// validate makes sure the server never starts with empty or placeholder credentials or
+// endpoints, and that any scope_radius_map entries have a valid value_type and value.
+// Failing here at startup beats failing on the first RADIUS request with a confusing
+// Keycloak Admin API 400 (e.g. an api_url with an empty realm builds
+// ".../admin/realms//users"). url marks endpoint fields that may also arrive half-filled
+// with the "<>" sample placeholder (e.g. "https://host/admin/realms/<>"), which the
+// isMissing check alone would not catch.
 func (c *Config) validate() error {
-	if isMissing(c.ClientID) {
-		return fmt.Errorf("missing required configuration: client_id is not set (it is empty or a placeholder) - set it in keyrad.yaml or export %s", envKeycloakClientID)
+	required := []struct {
+		name   string
+		value  string
+		envVar string
+		url    bool
+	}{
+		{name: "client_id", value: c.ClientID, envVar: envKeycloakClientID},
+		{name: "client_secret", value: c.ClientSecret, envVar: envKeycloakClientSecret},
+		{name: "token_url", value: c.TokenURL, envVar: envKeycloakTokenURL, url: true},
+		{name: "realm", value: c.Realm, envVar: envKeycloakRealm},
+		{name: "api_url", value: c.APIURL, envVar: envKeycloakAPIURL, url: true},
 	}
-	if isMissing(c.ClientSecret) {
-		return fmt.Errorf("missing required configuration: client_secret is not set (it is empty or a placeholder) - set it in keyrad.yaml or export %s", envKeycloakClientSecret)
+	for _, r := range required {
+		if isMissing(r.value) || (r.url && containsPlaceholder(r.value)) {
+			return fmt.Errorf("missing required configuration: %s is not set (it is empty or a placeholder) - set it in keyrad.yaml or export %s", r.name, r.envVar)
+		}
 	}
 	return c.validateScopeRadiusMap()
+}
+
+// containsPlaceholder reports whether s still contains the "<>" sample placeholder, e.g.
+// a half-filled URL such as "https://keycloak.example/admin/realms/<>".
+func containsPlaceholder(s string) bool {
+	return strings.Contains(s, "<>")
 }
 
 // validateScopeRadiusMap rejects malformed attribute definitions early instead of silently

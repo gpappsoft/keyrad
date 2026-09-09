@@ -162,9 +162,19 @@ For **group-based matching**, add a "groups" protocol mapper to your Keycloak cl
 For Docker/Kubernetes deployments you can keep `keyrad.yaml` and `clients.conf` free of plaintext
 credentials by supplying security-sensitive values through environment variables instead. Values
 are merged at startup with **ENV taking precedence over YAML** (`KEYRAD_` prefix, followed by
-section and field in SCREAMING_SNAKE_CASE). If `client_id` or `client_secret` is set in neither
-YAML nor ENV (empty, or the `<>` placeholder shipped in the sample), **keyrad refuses to start**
-with a clear error instead of running with an empty credential.
+section and field in SCREAMING_SNAKE_CASE).
+
+The following fields are **required** — if any is set in neither YAML nor ENV (empty, the `<>`
+placeholder shipped in the sample, or for the two URL fields still containing a `<>` anywhere),
+**keyrad refuses to start** with a clear error instead of running half-configured:
+
+- `client_id` and `client_secret` (credentials),
+- `token_url`, `realm`, and `api_url` (endpoints).
+
+`token_url` and `api_url` must be **complete URLs that already include your realm** (e.g.
+`.../admin/realms/master`). keyrad never inserts the `realm` value into them, so an `api_url`
+missing the realm (e.g. ending in `/admin/realms/`) will otherwise produce HTTP 400s from the
+Keycloak Admin API at the first RADIUS request — it now fails fast at startup instead.
 
 | YAML key (or file)              | Environment variable                        | Description                                                        |
 |---------------------------------|---------------------------------------------|--------------------------------------------------------------------|

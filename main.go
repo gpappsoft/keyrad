@@ -171,6 +171,13 @@ func run(opts runOptions, logger *zap.Logger, lookupEnv func(string) (string, bo
 	// Logs only masked credentials and env var *names* - never secret values.
 	cfg.logConfig(logger, len(radiusSecretOverrides))
 
+	// Warn loudly when TLS verification is disabled: with this on, a network MITM can
+	// read the client secret and user passwords sent to Keycloak.
+	if cfg.InsecureSkipTLSVerify {
+		logger.Warn("insecure_skip_tls_verify is enabled: TLS certificate verification to Keycloak is DISABLED",
+			zap.String("token_url", cfg.TokenURL))
+	}
+
 	return srv.ListenAndServe(listenAddr)
 }
 

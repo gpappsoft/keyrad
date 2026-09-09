@@ -244,3 +244,76 @@ func TestGetAdminToken_RefreshAfterExpiry(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// hasOTPMock returns an httptest server simulating the token + admin endpoints used by
+// HasOTP: client_credentials grant, /users?username=..., and /users/{id}/credentials.
+func hasOTPMock(t *testing.T, adminOK bool, usersBody, credsBody string) *httptest.Server {
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/token") {
+			if !adminOK {
+				w.WriteHeader(http.StatusUnauthorized)
+				io.WriteString(w, `{"error":"invalid_client"}`)
+				return
+			}
+			io.WriteString(w, `{"access_token":"adm","expires_in":3600}`)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/credentials") {
+			io.WriteString(w, credsBody)
+			return
+		}
+		io.WriteString(w, usersBody)
+	}))
+	t.Cleanup(ts.Close)
+	return ts
+}
+
+func hasOTPAPI(ts *httptest.Server) *KeycloakAPI {
+	return &KeycloakAPI{
+		TokenURL:     ts.URL + "/realms/master/protocol/openid-connect/token",
+		APIURL:       ts.URL + "/admin/realms/master",
+		ClientID:     "c",
+		ClientSecret: "s",
+		HTTPClient:   ts.Client(),
+		Logger:       zap.NewNop(),
+	}
+}
+
+func TestHasOTP_UserHasOTP(t *testing.T) {
+	ts := hasOTPMock(t, true, `[{"id":"u1","username":"alice"}]`, `[{"type":"otp","id":"o1"}]`)
+	got, err := hasOTPAPI(ts).HasOTP(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Fatal("expected OTP true")
+	}
+}
+
+func TestHasOTP_UserWithoutOTP(t *testing.T) {
+	ts := hasOTPMock(t, true, `[{"id":"u1","username":"alice"}]`, `[]`)
+	got, err := hasOTPAPI(ts).HasOTP(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Fatal("expected OTP false")
+	}
+}
+
+func TestHasOTP_AdminTokenUnauthorized(t *testing.T) {
+	ts := hasOTPMock(t, false, `[]`, `[]`)
+	_, err := hasOTPAPI(ts).HasOTP(context.Background(), "alice")
+	if err == nil {
+		t.Fatal("expected error for unauthorized admin token")
+	}
+}
+
+func TestHasOTP_UserNotFound(t *testing.T) {
+	ts := hasOTPMock(t, true, `[]`, `[]`)
+	_, err := hasOTPAPI(ts).HasOTP(context.Background(), "ghost")
+	if err == nil || !strings.Contains(err.Error(), "user not found") {
+		t.Fatalf("expected 'user not found', got %v", err)
+	}
+}

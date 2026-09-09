@@ -201,7 +201,7 @@ func radiusPacketLength(packet []byte) (int, error) {
 		return 0, errPacketTooShort
 	}
 	n := int(binary.BigEndian.Uint16(packet[2:4]))
-	if n < 20 || n > radius.MaxPacketLength {
+	if n < 20 || n > radius.MaxPacketLength || n > len(packet) {
 		return 0, errInvalidPacketLength
 	}
 	return n, nil

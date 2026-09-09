@@ -2,6 +2,25 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **Secrets via environment variables** (issue #8): `client_id` and `client_secret`
+  (plus `token_url`, `realm`, `api_url`, `insecure_skip_tls_verify`) can now be supplied
+  through `KEYRAD_KEYCLOAK_*` environment variables instead of plaintext in `keyrad.yaml`
+  for Docker/Kubernetes deployments. ENV values take precedence over YAML (`KEYRAD_` prefix,
+  section + field in SCREAMING_SNAKE_CASE).
+- **RADIUS client shared secrets via environment**: a `clients.conf` entry's `secret` can be
+  overridden by `KEYRAD_RADIUS_CLIENT_SECRET_<client_key>` (client key = ipaddr or block name,
+  punctuation replaced by `_`), so NAS secrets do not have to be baked into the file.
+- **Fail-fast validation**: keyrad refuses to start when `client_id`/`client_secret` are missing
+  (empty or `<>` placeholder) in both YAML and ENV, with an error naming the field and the
+  expected environment variable.
+- **No secret logging**: startup logs only masked credentials (first/last two characters) and
+  environment variable *names*; plaintext secrets are never written, even at debug level.
+
+---
+
 ## [2.0.1] - 2026-04-15
 
 ### Added

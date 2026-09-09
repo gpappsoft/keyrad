@@ -32,8 +32,6 @@ import (
 
 	"keyrad/keycloak"
 	"keyrad/radiussrv"
-
-	"gopkg.in/yaml.v3"
 )
 
 const Version = "2.0.1"
@@ -91,57 +89,72 @@ func main() {
 	}
 	defer logger.Sync()
 
-	// Load Keycloak config from YAML
-	var keycloakConfig struct {
-		TokenURL              string                       `yaml:"token_url"`
-		ClientID              string                       `yaml:"client_id"`
-		ClientSecret          string                       `yaml:"client_secret"`
-		Realm                 string                       `yaml:"realm"`
-		APIURL                string                       `yaml:"api_url"`
-		InsecureSkipTLSVerify bool                         `yaml:"insecure_skip_tls_verify"`
-		ScopeRadiusMap        radiussrv.ScopeRadiusMapping `yaml:"scope_radius_map"`
-		OTPChallengeMessage   string                       `yaml:"otp_challenge_message"`
-		ListenAddr            string                       `yaml:"listen_addr"`
+	if err := run(runOptions{
+		configPath:       keycloakConfigPath,
+		clientsPath:      clientsConfPath,
+		disableMsgAuth:   disableMessageAuthenticator,
+		disableChallenge: disableChallengeResponse,
+		pap:              papEnabled,
+		debug:            debug,
+	}, logger, os.LookupEnv); err != nil {
+		log.Fatalf("startup error: %v", err)
 	}
-	f, err := os.Open(keycloakConfigPath)
+}
+
+// runOptions carries the resolved command-line settings into run.
+type runOptions struct {
+	configPath       string
+	clientsPath      string
+	disableMsgAuth   bool
+	disableChallenge bool
+	pap              bool
+	debug            bool
+}
+
+// run loads the Keycloak configuration and RADIUS clients, applies environment overrides,
+// and starts the UDP listener. It returns an error instead of exiting so startup failures
+// are easy to test.
+func run(opts runOptions, logger *zap.Logger, lookupEnv func(string) (string, bool)) error {
+	// Load and validate Keycloak config: YAML values first, then KEYRAD_* env overrides
+	// (ENV wins). Missing required credentials fail here with a clear error.
+	cfg, err := LoadConfig(opts.configPath, lookupEnv)
 	if err != nil {
-		log.Fatalf("Failed to load %s: %v", keycloakConfigPath, err)
-	}
-	defer f.Close()
-	dec := yaml.NewDecoder(f)
-	if err := dec.Decode(&keycloakConfig); err != nil {
-		log.Fatalf("Failed to parse %s: %v", keycloakConfigPath, err)
+		return fmt.Errorf("invalid configuration in %s: %w", opts.configPath, err)
 	}
 
-	// Load clients.conf
-	clients, err := radiussrv.ParseClientsConf(clientsConfPath)
+	// Load clients.conf, then let KEYRAD_RADIUS_CLIENT_SECRET_* override shared secrets.
+	clients, err := radiussrv.ParseClientsConf(opts.clientsPath)
 	if err != nil {
-		log.Fatalf("Failed to parse %s: %v", clientsConfPath, err)
+		return fmt.Errorf("failed to parse %s: %w", opts.clientsPath, err)
+	}
+	radiusSecretOverrides, err := ApplyRadiusClientSecretEnv(clients, lookupEnv)
+	if err != nil {
+		return err
 	}
 
 	// Create Keycloak API client
 	kc := &keycloak.KeycloakAPI{
-		TokenURL:     keycloakConfig.TokenURL,
-		ClientID:     keycloakConfig.ClientID,
-		ClientSecret: keycloakConfig.ClientSecret,
-		Realm:        keycloakConfig.Realm,
-		APIURL:       keycloakConfig.APIURL,
-		HTTPClient:   getHTTPClient(keycloakConfig.InsecureSkipTLSVerify),
+		TokenURL:     cfg.TokenURL,
+		ClientID:     cfg.ClientID,
+		ClientSecret: cfg.ClientSecret,
+		Realm:        cfg.Realm,
+		APIURL:       cfg.APIURL,
+		HTTPClient:   getHTTPClient(cfg.InsecureSkipTLSVerify),
 		Logger:       logger,
 	}
 
-	// Create and start RADIUS server
+	// Create RADIUS server
 	srv := &radiussrv.Server{
 		Keycloak:         kc,
 		Clients:          clients,
-		ScopeRadiusMap:   keycloakConfig.ScopeRadiusMap,
-		OTPChallengeMsg:  keycloakConfig.OTPChallengeMessage,
-		DisableMsgAuth:   disableMessageAuthenticator,
-		DisableChallenge: disableChallengeResponse,
-		PAPEnabled:       papEnabled,
+		ScopeRadiusMap:   cfg.ScopeRadiusMap,
+		OTPChallengeMsg:  cfg.OTPChallengeMessage,
+		DisableMsgAuth:   opts.disableMsgAuth,
+		DisableChallenge: opts.disableChallenge,
+		PAPEnabled:       opts.pap,
 		Logger:           logger,
 	}
-	listenAddr := keycloakConfig.ListenAddr
+	listenAddr := cfg.ListenAddr
 	if listenAddr == "" {
 		listenAddr = "0.0.0.0:1812"
 	}
@@ -150,15 +163,15 @@ func main() {
 	logger.Info("keyrad starting",
 		zap.String("version", Version),
 		zap.String("listen_addr", listenAddr),
-		zap.String("config", keycloakConfigPath),
-		zap.String("clients_conf", clientsConfPath),
-		zap.Bool("pap", papEnabled),
-		zap.Bool("debug_flag", debug),
+		zap.String("config", opts.configPath),
+		zap.String("clients_conf", opts.clientsPath),
+		zap.Bool("pap", opts.pap),
+		zap.Bool("debug_flag", opts.debug),
 	)
+	// Logs only masked credentials and env var *names* - never secret values.
+	cfg.logConfig(logger, len(radiusSecretOverrides))
 
-	if err := srv.ListenAndServe(listenAddr); err != nil {
-		log.Fatalf("RADIUS server error: %v", err)
-	}
+	return srv.ListenAndServe(listenAddr)
 }
 
 // getHTTPClient returns an HTTP client with a 30s timeout and optional TLS certificate verification skip.

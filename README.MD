@@ -152,6 +152,45 @@ For **group-based matching**, add a "groups" protocol mapper to your Keycloak cl
 2. Set **Token Claim Name** to `groups`.
 3. Disable **Full group path** if you want short group names.
 
+### 5. Secrets via Environment Variables
+
+For Docker/Kubernetes deployments you can keep `keyrad.yaml` and `clients.conf` free of plaintext
+credentials by supplying security-sensitive values through environment variables instead. Values
+are merged at startup with **ENV taking precedence over YAML** (`KEYRAD_` prefix, followed by
+section and field in SCREAMING_SNAKE_CASE). If `client_id` or `client_secret` is set in neither
+YAML nor ENV (empty, or the `<>` placeholder shipped in the sample), **keyrad refuses to start**
+with a clear error instead of running with an empty credential.
+
+| YAML key (or file)              | Environment variable                        | Description                                                        |
+|---------------------------------|---------------------------------------------|--------------------------------------------------------------------|
+| `client_id`                     | `KEYRAD_KEYCLOAK_CLIENT_ID`                 | Keycloak confidential client ID (required).                       |
+| `client_secret`                 | `KEYRAD_KEYCLOAK_CLIENT_SECRET`             | Keycloak client secret (required).                                 |
+| `token_url`                     | `KEYRAD_KEYCLOAK_TOKEN_URL`                 | OIDC token endpoint URL.                                           |
+| `realm`                         | `KEYRAD_KEYCLOAK_REALM`                     | Keycloak realm name.                                               |
+| `api_url`                       | `KEYRAD_KEYCLOAK_API_URL`                   | Keycloak Admin REST API base URL.                                  |
+| `insecure_skip_tls_verify`      | `KEYRAD_KEYCLOAK_INSECURE_SKIP_TLS_VERIFY`  | Set to `true`/`false` to skip TLS verification.                    |
+| `clients.conf` per-client secret | `KEYRAD_RADIUS_CLIENT_SECRET_<CLIENT_KEY>`  | Overrides the shared secret of one RADIUS client (see below).      |
+
+**RADIUS client shared secrets** (`clients.conf`) can also be injected per client. `<CLIENT_KEY>`
+is the client block's `ipaddr` (or its name when `ipaddr` is absent) with `.`, `:`, `/`, `-` and
+spaces replaced by `_`. Clients can only be *defined* in `clients.conf`; the environment only
+*overrides* their secret. For example a `client 10.0.0.1` block is overridden by
+`KEYRAD_RADIUS_CLIENT_SECRET_10_0_0_1`, and `client nas-1` by `KEYRAD_RADIUS_CLIENT_SECRET_NAS_1`.
+
+```bash
+# keyrad.yaml can keep client_id/client_secret empty or as "<>"; ENV wins.
+export KEYRAD_KEYCLOAK_CLIENT_ID=radius-client
+export KEYRAD_KEYCLOAK_CLIENT_SECRET=my-very-long-client-secret
+./keyrad -c keyrad.yaml -r clients.conf
+```
+
+> **Security note**: secrets are never logged. At startup keyrad logs only the **masked** form
+> (first/last two characters, e.g. `ab****yz`) and the **names** of the environment variables
+> that were applied — never the plaintext value, not even at debug level.
+
+See `docker-compose.example.yml` for a compose file that injects the credentials via an
+`environment:` block rather than a plaintext secret in the mounted YAML.
+
 ## Usage
 
 ### Start the server

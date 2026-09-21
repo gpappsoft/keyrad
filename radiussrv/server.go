@@ -71,6 +71,13 @@ func (s *Server) ListenAndServe(listenAddr string) error {
 	}
 	defer conn.Close()
 
+	// Create the challenge store once, before workers start, so concurrent OTP
+	// challenge requests can never race on lazy initialization (handle.go used to
+	// initialize it inside worker goroutines).
+	if s.ChallengeStateStore == nil {
+		s.ChallengeStateStore = NewChallengeStateStore()
+	}
+
 	for i := 0; i < workerCount; i++ {
 		go s.worker()
 	}

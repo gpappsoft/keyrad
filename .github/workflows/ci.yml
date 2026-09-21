@@ -1,0 +1,35 @@
+# CI runs vet, the full test suite (unit + integration + smoke) under the race
+# detector with coverage, and govulncheck on every push/PR.
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+jobs:
+  test:
+    name: vet + tests + govulncheck
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26.6'
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go test (race + cover)
+        run: go test ./... -race -cover
+
+      - name: govulncheck
+        run: |
+          go install golang.org/x/vuln/cmd/govulncheck@latest
+          GOFLAGS=-mod=vendor "$(go env GOPATH)/bin/govulncheck" ./...

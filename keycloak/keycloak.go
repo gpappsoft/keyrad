@@ -208,9 +208,16 @@ func (k *KeycloakAPI) HasOTP(ctx context.Context, username string) (bool, error)
 	}
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(resp.Body)
+	// Keycloak answers with HTTP 200 and a JSON array only when the URL is valid
+	// (correct realm). Any other status returns a JSON error *object*; surfacing that
+	// status/body beats a misleading "cannot unmarshal object into []map" decode error.
+	if resp.StatusCode != http.StatusOK {
+		err := fmt.Errorf("keycloak user lookup failed: status %d: %s", resp.StatusCode, trimBody(respBody))
+		log.Warn("user lookup failed", zap.String("url", reqURL), zap.Int("status code", resp.StatusCode), zap.String("body", trimBody(respBody)))
+		return false, err
+	}
 	var users []map[string]interface{}
-	err = json.Unmarshal(respBody, &users)
-	if err != nil {
+	if err := json.Unmarshal(respBody, &users); err != nil {
 		log.Warn("failed to decode user lookup response", zap.String("url", reqURL), zap.Int("status code", resp.StatusCode), zap.Error(err))
 		return false, fmt.Errorf("decode error: %w", err)
 	}
@@ -230,6 +237,10 @@ func (k *KeycloakAPI) HasOTP(ctx context.Context, username string) (bool, error)
 		return false, err
 	}
 	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		body, _ := io.ReadAll(resp.Body)
+		return false, fmt.Errorf("keycloak credentials lookup failed: status %d: %s", resp.StatusCode, trimBody(body))
+	}
 	var creds []map[string]interface{}
 	if err := json.NewDecoder(resp.Body).Decode(&creds); err != nil {
 		return false, err
@@ -241,4 +252,14 @@ func (k *KeycloakAPI) HasOTP(ctx context.Context, username string) (bool, error)
 		}
 	}
 	return false, nil
+}
+
+// trimBody returns body as a single-line string capped at 512 bytes, so Keycloak error
+// responses can be logged/returned without flooding logs with a large or multi-line body.
+func trimBody(body []byte) string {
+	s := strings.TrimSpace(string(body))
+	if len(s) > 512 {
+		s = s[:512] + "..."
+	}
+	return strings.ReplaceAll(s, "\n", " ")
 }

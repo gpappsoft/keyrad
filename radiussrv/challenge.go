@@ -55,12 +55,17 @@ func NewChallengeStateStore() *ChallengeStateStore {
 	return s
 }
 
-// Get returns the session for state if present and not expired, and deletes the entry when expired.
+// Get returns the session for state if present and not expired. An expired entry is
+// deleted on access so the TTL is enforced even between cleanup ticks.
 func (s *ChallengeStateStore) Get(state string) (ChallengeSession, bool) {
-	s.mu.RLock()
-	defer s.mu.RUnlock()
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	e, ok := s.m[state]
 	if !ok {
+		return ChallengeSession{}, false
+	}
+	if time.Now().After(e.expires) {
+		delete(s.m, state)
 		return ChallengeSession{}, false
 	}
 	return e.sess, true

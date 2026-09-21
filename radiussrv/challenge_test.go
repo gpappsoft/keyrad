@@ -76,3 +76,23 @@ func TestGenerateRandomState(t *testing.T) {
 		}
 	}
 }
+
+func TestChallengeStateStore_GetExpiredDeletesAndMisses(t *testing.T) {
+	s := testChallengeStore(time.Hour)
+	s.mu.Lock()
+	s.m["stale"] = challengeEntry{
+		sess:    ChallengeSession{Username: "x"},
+		expires: time.Now().Add(-time.Minute),
+	}
+	s.mu.Unlock()
+
+	if _, ok := s.Get("stale"); ok {
+		t.Fatal("expired session must not be returned")
+	}
+	s.mu.Lock()
+	_, exists := s.m["stale"]
+	s.mu.Unlock()
+	if exists {
+		t.Fatal("expired session must be deleted on Get")
+	}
+}

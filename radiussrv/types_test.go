@@ -79,3 +79,76 @@ func TestParseClientsConf_MissingFile(t *testing.T) {
 		t.Fatal("expected error")
 	}
 }
+
+func TestParseClientsConf_MultipleClientsAndComments(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clients.conf")
+	content := `
+# FreeRADIUS-style clients.conf
+
+client nas1 {
+	secret = s3cret-one
+	shortname = nas-one
+	ipaddr = 192.0.2.10
+}
+
+# a second client, CIDR-based
+client lan {
+	secret = s3cret-two
+	ipaddr = 198.51.100.0/24
+}
+`
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	clients, err := ParseClientsConf(path)
+	if err != nil {
+		t.Fatalf("ParseClientsConf: %v", err)
+	}
+	if len(clients) != 2 {
+		t.Fatalf("expected 2 clients, got %#v", clients)
+	}
+	if clients["192.0.2.10"].Secret != "s3cret-one" {
+		t.Fatalf("nas1 secret: %q", clients["192.0.2.10"].Secret)
+	}
+	if clients["198.51.100.0/24"].Secret != "s3cret-two" {
+		t.Fatalf("lan secret: %q", clients["198.51.100.0/24"].Secret)
+	}
+}
+
+func TestParseClientsConf_EmptyFile(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clients.conf")
+	if err := os.WriteFile(path, nil, 0o600); err != nil {
+		t.Fatal(err)
+	}
+	clients, err := ParseClientsConf(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(clients) != 0 {
+		t.Fatalf("expected empty client set, got %#v", clients)
+	}
+}
+
+func TestParseClientsConf_SecretWithInlineComment(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "clients.conf")
+	// The parser captures the first whitespace-delimited token as the secret, so an
+	// inline comment after whitespace is not part of the shared secret.
+	if err := os.WriteFile(path, []byte(`
+client nas1 {
+	secret = s3cret # keep me out of the secret
+	ipaddr = 192.0.2.10
+}
+`), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	clients, err := ParseClientsConf(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := clients["192.0.2.10"].Secret; got != "s3cret" {
+		t.Fatalf("secret: got %q want %q", got, "s3cret")
+	}
+}

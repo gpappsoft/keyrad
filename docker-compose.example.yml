@@ -1,4 +1,8 @@
 # Example only — copy/adjust paths and image.
+#
+# Secrets via environment variables: client_id/client_secret are read from the shell
+# (or a .env file) and injected, so the mounted keyrad.yaml can stay free of plaintext
+# credentials (its values may be left empty or as "<>"). ENV wins over YAML.
 services:
   keyrad:
     image: gpappsoft/keyrad:latest
@@ -6,6 +10,16 @@ services:
     volumes:
       - ./keyrad.yaml:/app/keyrad.yaml:ro
       - ./clients.conf:/app/clients.conf:ro
+    environment:
+      KEYRAD_KEYCLOAK_CLIENT_ID: "${KEYCLOAK_CLIENT_ID:?set KEYCLOAK_CLIENT_ID in .env}"
+      KEYRAD_KEYCLOAK_CLIENT_SECRET: "${KEYCLOAK_CLIENT_SECRET:?set KEYCLOAK_CLIENT_SECRET in .env}"
+      # Optional overrides:
+      # KEYRAD_KEYCLOAK_TOKEN_URL: "${KEYCLOAK_TOKEN_URL}"
+      # KEYRAD_KEYCLOAK_REALM: "${KEYCLOAK_REALM}"
+      # KEYRAD_KEYCLOAK_API_URL: "${KEYCLOAK_API_URL}"
+      # KEYRAD_KEYCLOAK_INSECURE_SKIP_TLS_VERIFY: "${KEYCLOAK_INSECURE_SKIP_TLS_VERIFY:-false}"
+      # Override a RADIUS shared secret from clients.conf per client key, e.g.:
+      # KEYRAD_RADIUS_CLIENT_SECRET_127_0_0_1: "${NAS_SHARED_SECRET}"
     restart: always
     #ports:
     #  - "1812:1812/udp"

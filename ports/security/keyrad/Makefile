@@ -1,5 +1,5 @@
 PORTNAME=	keyrad
-DISTVERSION=	2.0.3
+DISTVERSION=	2.0.4
 CATEGORIES=	security
 
 MAINTAINER=	marco.moenig@sec73.io

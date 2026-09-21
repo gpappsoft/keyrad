@@ -2,7 +2,7 @@
 
 All notable changes to this project will be documented in this file.
 
-## [Unreleased]
+## [2.0.4] - 2026-09-21
 
 ### Added
 - **Secrets via environment variables** (issue #8): `client_id` and `client_secret`

@@ -538,6 +538,30 @@ func TestIntegration_OTPCombinedDisableChallenge(t *testing.T) {
 	expectCode(t, resp, err, radius.CodeAccessAccept)
 }
 
+func TestIntegration_OTPOnlyDisableChallenge(t *testing.T) {
+	carol := &mockUser{username: "carol", password: "", hasOTP: true, otp: "654321", roles: []string{"vpn"}}
+	mock := newKeycloakMock("radius-client", "secret", append(radiusUsers(), carol)...)
+	defer mock.close()
+
+	opts := runOptions{disableChallenge: true}
+	yamlContent := testYAML("radius-client", "secret", mock.tokenURL, mock.apiURL, "")
+	env := map[string]string{envAllowOTPOnly: "true"}
+	ts := startTestServer(t, yamlContent, loopbackClientsConf(), env, opts)
+
+	resp, err := ts.accessRequest(t, "carol", "654321", true, nil)
+	expectCode(t, resp, err, radius.CodeAccessAccept)
+
+	resp, err = ts.accessRequest(t, "carol", "000000", true, nil)
+	expectCode(t, resp, err, radius.CodeAccessReject)
+
+	// OTP-only mode accepts exactly 6 characters: <password><otp> is rejected.
+	resp, err = ts.accessRequest(t, "bob", "bob-pw123456", true, nil)
+	expectCode(t, resp, err, radius.CodeAccessReject)
+
+	resp, err = ts.accessRequest(t, "carol", "65432", true, nil)
+	expectCode(t, resp, err, radius.CodeAccessReject)
+}
+
 func TestIntegration_WrongPasswordRejected(t *testing.T) {
 	mock := newKeycloakMock("radius-client", "secret", radiusUsers()...)
 	defer mock.close()

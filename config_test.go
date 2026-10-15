@@ -18,6 +18,7 @@ package main
 
 import (
 	"bytes"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -128,6 +129,40 @@ insecure_skip_tls_verify: false
 		if !found {
 			t.Errorf("applied env vars missing %q (got %v)", w, cfg.appliedEnvVars)
 		}
+	}
+}
+
+func TestLoadConfigAllowOTPOnly(t *testing.T) {
+	dir := t.TempDir()
+	base := `
+client_id: "c"
+client_secret: "s"
+token_url: "https://kc.example/realms/master/protocol/openid-connect/token"
+realm: "master"
+api_url: "https://kc.example/admin/realms/master"
+`
+	cases := []struct {
+		name string
+		yaml string
+		env  map[string]string
+		want bool
+	}{
+		{name: "default false", yaml: base, want: false},
+		{name: "yaml true", yaml: base + "allow_otp_only: true\n", want: true},
+		{name: "env true", yaml: base, env: map[string]string{envAllowOTPOnly: "true"}, want: true},
+		{name: "env overrides yaml", yaml: base + "allow_otp_only: true\n", env: map[string]string{envAllowOTPOnly: "false"}, want: false},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, dir, fmt.Sprintf("keyrad-%d.yaml", i), tc.yaml)
+			cfg, err := LoadConfig(path, envMapLookup(tc.env))
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			if cfg.AllowOTPOnly != tc.want {
+				t.Errorf("AllowOTPOnly: got %v want %v", cfg.AllowOTPOnly, tc.want)
+			}
+		})
 	}
 }
 

@@ -151,6 +151,7 @@ func run(opts runOptions, logger *zap.Logger, lookupEnv func(string) (string, bo
 		OTPChallengeMsg:  cfg.OTPChallengeMessage,
 		DisableMsgAuth:   opts.disableMsgAuth,
 		DisableChallenge: opts.disableChallenge,
+		AllowOTPOnly:     cfg.AllowOTPOnly,
 		PAPEnabled:       opts.pap,
 		Logger:           logger,
 	}

@@ -95,17 +95,28 @@ func (s *Server) HandlePacket(p *packet) {
 }
 
 // handleDisableChallenge authenticates when challenge-response is disabled (password ends with 6-digit OTP).
+// With AllowOTPOnly the User-Password field carries only the 6-character OTP and an empty password is sent.
 func (s *Server) handleDisableChallenge(p *packet, kcCtx context.Context) {
 	log := s.withRequest(p)
-	if len(p.password) <= 6 {
-		log.Debug("password too short for OTP split", zap.String("username", p.username))
-		resp := radius.New(radius.CodeAccessReject, p.secret)
-		s.writePAPResponse(p, resp)
-		return
+	var otp, userPassword string
+	if s.AllowOTPOnly {
+		if len(p.password) != 6 {
+			log.Debug("OTP-only value must be 6 characters", zap.String("username", p.username))
+			resp := radius.New(radius.CodeAccessReject, p.secret)
+			s.writePAPResponse(p, resp)
+			return
+		}
+		otp = p.password
+	} else {
+		if len(p.password) <= 6 {
+			log.Debug("password too short for OTP split", zap.String("username", p.username))
+			resp := radius.New(radius.CodeAccessReject, p.secret)
+			s.writePAPResponse(p, resp)
+			return
+		}
+		otp = p.password[len(p.password)-6:]
+		userPassword = p.password[:len(p.password)-6]
 	}
-
-	otp := p.password[len(p.password)-6:]
-	userPassword := p.password[:len(p.password)-6]
 	log.Debug("split password", zap.Int("len_password", len(userPassword)), zap.Int("len_otp", len(otp)))
 	ok, roles, err := s.Keycloak.AuthenticateUser(kcCtx, p.username, userPassword, otp)
 	otpOk := ok && err == nil

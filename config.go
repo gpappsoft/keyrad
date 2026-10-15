@@ -39,6 +39,7 @@ const (
 	envKeycloakRealm                 = "KEYRAD_KEYCLOAK_REALM"
 	envKeycloakAPIURL                = "KEYRAD_KEYCLOAK_API_URL"
 	envKeycloakInsecureSkipTLSVerify = "KEYRAD_KEYCLOAK_INSECURE_SKIP_TLS_VERIFY"
+	envAllowOTPOnly                  = "KEYRAD_ALLOW_OTP_ONLY"
 	// Radius client shared secrets are overridden per client via
 	// KEYRAD_RADIUS_CLIENT_SECRET_<key>, where <key> is the client block's ipaddr (or its
 	// name when ipaddr is absent) with ".", ":", "/", "-" and spaces replaced by "_".
@@ -57,6 +58,7 @@ type Config struct {
 	ScopeRadiusMap        radiussrv.ScopeRadiusMapping `yaml:"scope_radius_map"`
 	OTPChallengeMessage   string                       `yaml:"otp_challenge_message"`
 	ListenAddr            string                       `yaml:"listen_addr"`
+	AllowOTPOnly          bool                         `yaml:"allow_otp_only"`
 
 	// appliedEnvVars records which KEYRAD_* variables actually overrode the YAML so the
 	// startup log can name them without ever logging their values.
@@ -114,6 +116,9 @@ func (c *Config) applyEnvOverrides(lookupEnv func(string) (string, bool)) error 
 	setString(envKeycloakRealm, &c.Realm)
 	setString(envKeycloakAPIURL, &c.APIURL)
 	if err := setBool(envKeycloakInsecureSkipTLSVerify, &c.InsecureSkipTLSVerify); err != nil {
+		return err
+	}
+	if err := setBool(envAllowOTPOnly, &c.AllowOTPOnly); err != nil {
 		return err
 	}
 	return nil

@@ -22,6 +22,9 @@ api_url: "https://<>/admin/realms/<>" # this is the admin API URL
 
 # insecure_skip_tls_verify -> KEYRAD_KEYCLOAK_INSECURE_SKIP_TLS_VERIFY (true/false)
 insecure_skip_tls_verify: false
+# allow_otp_only -> KEYRAD_ALLOW_OTP_ONLY (true/false). With --disable-challenge-response,
+# User-Password carries only the 6-character OTP and an empty password is sent to Keycloak.
+allow_otp_only: false
 otp_challenge_message: "Please enter your OTP code"
 
 # RADIUS attribute mappings based on user roles/groups/scopes.

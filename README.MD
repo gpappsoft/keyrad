@@ -184,6 +184,7 @@ Keycloak Admin API at the first RADIUS request — it now fails fast at startup 
 | `realm`                         | `KEYRAD_KEYCLOAK_REALM`                     | Keycloak realm name.                                               |
 | `api_url`                       | `KEYRAD_KEYCLOAK_API_URL`                   | Keycloak Admin REST API base URL.                                  |
 | `insecure_skip_tls_verify`      | `KEYRAD_KEYCLOAK_INSECURE_SKIP_TLS_VERIFY`  | Set to `true`/`false` to skip TLS verification.                    |
+| `allow_otp_only`                | `KEYRAD_ALLOW_OTP_ONLY`                     | With `--disable-challenge-response`, accept only the 6-char OTP (empty password). Default `false`. |
 | `clients.conf` per-client secret | `KEYRAD_RADIUS_CLIENT_SECRET_<CLIENT_KEY>`  | Overrides the shared secret of one RADIUS client (see below).      |
 
 **RADIUS client shared secrets** (`clients.conf`) can also be injected per client. `<CLIENT_KEY>`

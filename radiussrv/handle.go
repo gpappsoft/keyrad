@@ -82,6 +82,15 @@ func (s *Server) HandlePacket(p *packet) {
 			log.Debug("user has OTP", zap.String("username", username), zap.Error(err))
 		}
 
+		// In OTP-only mode, optionally refuse users without an OTP credential (or whose OTP
+		// lookup failed) instead of falling through to the plain password grant.
+		if !hasOTP && s.AllowOTPOnly && s.OTPOnlyRejectNonOTP {
+			log.Debug("OTP-only: no OTP credential or OTP lookup failed, rejecting", zap.String("username", username))
+			resp := radius.New(radius.CodeAccessReject, p.secret)
+			s.writePAPResponse(p, resp)
+			return
+		}
+
 		if hasOTP {
 			if s.DisableChallenge {
 				s.handleDisableChallenge(p, kcCtx)

@@ -121,6 +121,11 @@ func run(opts runOptions, logger *zap.Logger, lookupEnv func(string) (string, bo
 	if err != nil {
 		return fmt.Errorf("invalid configuration in %s: %w", opts.configPath, err)
 	}
+	// allow_otp_only only applies to the <otp> single-request flow; with challenge-response
+	// enabled it would be silently ignored, so refuse to start instead.
+	if cfg.AllowOTPOnly && !opts.disableChallenge {
+		return fmt.Errorf("invalid configuration in %s: allow_otp_only requires --disable-challenge-response", opts.configPath)
+	}
 
 	// Load clients.conf, then let KEYRAD_RADIUS_CLIENT_SECRET_* override shared secrets.
 	clients, err := radiussrv.ParseClientsConf(opts.clientsPath)
@@ -145,15 +150,16 @@ func run(opts runOptions, logger *zap.Logger, lookupEnv func(string) (string, bo
 
 	// Create RADIUS server
 	srv := &radiussrv.Server{
-		Keycloak:         kc,
-		Clients:          clients,
-		ScopeRadiusMap:   cfg.ScopeRadiusMap,
-		OTPChallengeMsg:  cfg.OTPChallengeMessage,
-		DisableMsgAuth:   opts.disableMsgAuth,
-		DisableChallenge: opts.disableChallenge,
-		AllowOTPOnly:     cfg.AllowOTPOnly,
-		PAPEnabled:       opts.pap,
-		Logger:           logger,
+		Keycloak:            kc,
+		Clients:             clients,
+		ScopeRadiusMap:      cfg.ScopeRadiusMap,
+		OTPChallengeMsg:     cfg.OTPChallengeMessage,
+		DisableMsgAuth:      opts.disableMsgAuth,
+		DisableChallenge:    opts.disableChallenge,
+		AllowOTPOnly:        cfg.AllowOTPOnly,
+		OTPOnlyRejectNonOTP: cfg.OTPOnlyRejectNonOTP,
+		PAPEnabled:          opts.pap,
+		Logger:              logger,
 	}
 	listenAddr := cfg.ListenAddr
 	if listenAddr == "" {
@@ -167,6 +173,9 @@ func run(opts runOptions, logger *zap.Logger, lookupEnv func(string) (string, bo
 		zap.String("config", opts.configPath),
 		zap.String("clients_conf", opts.clientsPath),
 		zap.Bool("pap", opts.pap),
+		zap.Bool("disable_challenge_response", opts.disableChallenge),
+		zap.Bool("allow_otp_only", cfg.AllowOTPOnly),
+		zap.Bool("otp_only_reject_non_otp", cfg.OTPOnlyRejectNonOTP),
 		zap.Bool("debug_flag", opts.debug),
 	)
 	// Logs only masked credentials and env var *names* - never secret values.

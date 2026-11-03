@@ -44,6 +44,7 @@ type Server struct {
 	DisableMsgAuth      bool
 	DisableChallenge    bool
 	AllowOTPOnly        bool
+	OTPOnlyRejectNonOTP bool
 	PAPEnabled          bool
 	ChallengeStateStore *ChallengeStateStore
 	Logger              *zap.Logger

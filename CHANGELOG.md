@@ -2,6 +2,26 @@
 
 All notable changes to this project will be documented in this file.
 
+## [Unreleased]
+
+### Added
+- **OTP-only mode** (`allow_otp_only` / `KEYRAD_ALLOW_OTP_ONLY`): with `--disable-challenge-response`,
+  User-Password carries only the 6-character OTP, sent to Keycloak as `totp` with an empty password;
+  `<password><otp>` is rejected. The option is global, and from keyrad's perspective it is a single factor.
+  The Keycloak client used by keyrad needs a Direct Grant flow override with the password step
+  disabled and the OTP step required (see README, "OTP-only mode").
+- **`otp_only_reject_non_otp`** (`KEYRAD_OTP_ONLY_REJECT_NON_OTP`, default `false`): in OTP-only mode,
+  answer Access-Reject for users without an OTP credential, or when the OTP lookup fails, instead of
+  falling back to the password grant.
+- Startup log now includes `disable_challenge_response`, `allow_otp_only` and `otp_only_reject_non_otp`.
+
+### Changed
+- keyrad refuses to start when `allow_otp_only` is set without `--disable-challenge-response`
+  (previously it was silently ignored and OTP users still got an Access-Challenge), and when
+  `otp_only_reject_non_otp` is set without `allow_otp_only`.
+
+---
+
 ## [2.0.4] - 2026-09-21
 
 ### Added

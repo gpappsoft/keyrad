@@ -166,6 +166,49 @@ api_url: "https://kc.example/admin/realms/master"
 	}
 }
 
+func TestLoadConfigOTPOnlyRejectNonOTP(t *testing.T) {
+	dir := t.TempDir()
+	base := `
+client_id: "c"
+client_secret: "s"
+token_url: "https://kc.example/realms/master/protocol/openid-connect/token"
+realm: "master"
+api_url: "https://kc.example/admin/realms/master"
+allow_otp_only: true
+`
+	cases := []struct {
+		name string
+		yaml string
+		env  map[string]string
+		want bool
+	}{
+		{name: "default false", yaml: base, want: false},
+		{name: "yaml true", yaml: base + "otp_only_reject_non_otp: true\n", want: true},
+		{name: "env true", yaml: base, env: map[string]string{envOTPOnlyRejectNonOTP: "true"}, want: true},
+		{name: "env overrides yaml", yaml: base + "otp_only_reject_non_otp: true\n", env: map[string]string{envOTPOnlyRejectNonOTP: "false"}, want: false},
+	}
+	for i, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			path := writeTemp(t, dir, fmt.Sprintf("keyrad-%d.yaml", i), tc.yaml)
+			cfg, err := LoadConfig(path, envMapLookup(tc.env))
+			if err != nil {
+				t.Fatalf("LoadConfig: %v", err)
+			}
+			if cfg.OTPOnlyRejectNonOTP != tc.want {
+				t.Errorf("OTPOnlyRejectNonOTP: got %v want %v", cfg.OTPOnlyRejectNonOTP, tc.want)
+			}
+		})
+	}
+
+	t.Run("requires allow_otp_only", func(t *testing.T) {
+		path := writeTemp(t, dir, "keyrad-no-otp-only.yaml", base+"otp_only_reject_non_otp: true\n")
+		_, err := LoadConfig(path, envMapLookup(map[string]string{envAllowOTPOnly: "false"}))
+		if err == nil || !strings.Contains(err.Error(), "allow_otp_only") {
+			t.Fatalf("expected an error naming allow_otp_only, got: %v", err)
+		}
+	})
+}
+
 func TestLoadConfigMissingRequiredFieldFailsClearly(t *testing.T) {
 	// base holds a fully-valid configuration; each case then empties, placeholders, or
 	// drops one key so validate() fails on exactly that field.
@@ -236,13 +279,16 @@ client_id: "radius-client"
 client_secret: "secret"
 realm: "master"
 `)
-	env := map[string]string{envKeycloakInsecureSkipTLSVerify: "not-a-bool"}
-	_, err := LoadConfig(yamlPath, envMapLookup(env))
-	if err == nil {
-		t.Fatal("expected an error for invalid boolean env value, got nil")
-	}
-	if !strings.Contains(err.Error(), envKeycloakInsecureSkipTLSVerify) {
-		t.Errorf("error should name env var %q, got: %v", envKeycloakInsecureSkipTLSVerify, err)
+	for _, envVar := range []string{envKeycloakInsecureSkipTLSVerify, envAllowOTPOnly, envOTPOnlyRejectNonOTP} {
+		t.Run(envVar, func(t *testing.T) {
+			_, err := LoadConfig(yamlPath, envMapLookup(map[string]string{envVar: "not-a-bool"}))
+			if err == nil {
+				t.Fatal("expected an error for invalid boolean env value, got nil")
+			}
+			if !strings.Contains(err.Error(), envVar) {
+				t.Errorf("error should name env var %q, got: %v", envVar, err)
+			}
+		})
 	}
 }
 

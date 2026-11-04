@@ -1,5 +1,5 @@
 /*
- * Copyright 2026 Marco Moenig <marco@sec73.io>, Oleg Ermoshkin <o@ermoshkin.com>
+ * Copyright 2026 Marco Moenig <marco@sec73.io>, Oleg Ermoshkin <o@ermoshkin.com>, Bruno Salzano <bruno@d4rkstar.net>
  *
  * Licensed under the Apache License, Version 2.0 (the "License");
  * you may not use this file except in compliance with the License.
@@ -34,8 +34,9 @@ import (
 	"keyrad/radiussrv"
 )
 
-const Version = "2.0.1"
-const Author = "Marco Moenig <marco@sec73.io>, Oleg Ermoshkin <o@ermoshkin.com>"
+// Version is injected at build time via -ldflags "-X main.Version=...".
+// Defaults to "dev" for local, non-release builds.
+var Version = "dev"
 
 func main() {
 	var zapcfg zap.Config
@@ -71,11 +72,11 @@ func main() {
 	flag.BoolVar(&disableMessageAuthenticator, "disable-message-authenticator", false, "Disable Message-Authenticator verification and generation")
 	flag.BoolVar(&disableChallengeResponse, "disable-challenge-response", false, "Disable RADIUS challenge-response and use <password><otp> style for OTP users")
 	flag.BoolVar(&debug, "debug", false, "Enable debug output for RADIUS and Keycloak communication")
-	flag.BoolVar(&showVersion, "version", false, "Show version and author information")
+	flag.BoolVar(&showVersion, "version", false, "Show version information")
 	flag.BoolVar(&papEnabled, "pap", true, "Enable PAP authentication")
 	flag.Parse()
 	if showVersion {
-		fmt.Printf("keyrad version %s\nAuthor: %s\n", Version, Author)
+		fmt.Printf("keyrad version %s\nSee AUTHORS for contributors.\n", Version)
 		os.Exit(0)
 	}
 

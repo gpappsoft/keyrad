@@ -25,7 +25,7 @@ ARG VERSION=main
 WORKDIR /src
 RUN git clone --depth 1 --branch ${VERSION} https://github.com/gpappsoft/keyrad.git . \
 	&& go mod download \
-	&& CGO_ENABLED=0 go build -v -o /app/keyrad .
+	&& CGO_ENABLED=0 go build -v -ldflags "-X main.Version=${VERSION}" -o /app/keyrad .
 
 ### final stage
 ###

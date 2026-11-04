@@ -36,6 +36,10 @@ LABEL org.opencontainers.image.source="https://github.com/gpappsoft/keyrad.git"
 LABEL org.opencontainers.image.url="https://github.com/gpappsoft/keyrad.git"
 LABEL org.opencontainers.image.description="A Go-based RADIUS server that authenticates users against Keycloak, supporting password and OTP (TOTP) flows."
 
+# Re-declared here: build-stage ARGs do not cross FROM. Same tag the binary embeds.
+ARG VERSION=main
+LABEL org.opencontainers.image.version="${VERSION}"
+
 
 WORKDIR /app
 

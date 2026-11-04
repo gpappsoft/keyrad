@@ -208,6 +208,10 @@ export KEYRAD_KEYCLOAK_CLIENT_SECRET=my-very-long-client-secret
 See `docker-compose.example.yml` for a compose file that injects the credentials via an
 `environment:` block rather than a plaintext secret in the mounted YAML.
 
+`.env.example` lists every supported `KEYRAD_*` variable with its allowed values and a
+description. Copy it to `.env` (git-ignored) and load it with `set -a; source .env; set +a`,
+or point Compose at it with `env_file:`. keyrad itself does not read `.env`.
+
 ## Usage
 
 ### Start the server
@@ -216,7 +220,7 @@ See `docker-compose.example.yml` for a compose file that injects the credentials
 ```
 - Use `--disable-message-authenticator` to disable Message-Authenticator checks (for legacy clients).
 - Use `--disable-challenge-response` to allow OTP users to authenticate with `<password><otp>` in the User-Password field (no challenge-response).
-- Use `--version` to print version and author.
+- Use `--version` to print the version (the git tag for release builds, `dev` for local builds).
 
 ### Test with radtest
 ```bash

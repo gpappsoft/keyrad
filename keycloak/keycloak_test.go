@@ -24,6 +24,7 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync"
 	"testing"
 	"time"
 
@@ -315,5 +316,180 @@ func TestHasOTP_UserNotFound(t *testing.T) {
 	_, err := hasOTPAPI(ts).HasOTP(context.Background(), "ghost")
 	if err == nil || !strings.Contains(err.Error(), "user not found") {
 		t.Fatalf("expected 'user not found', got %v", err)
+	}
+}
+
+// lookupUser is one user exposed by lookupMock.
+type lookupUser struct {
+	id       string
+	username string
+	hasOTP   bool
+}
+
+// lookupMock emulates Keycloak's Admin REST API user lookup: `username` is a substring
+// search unless exact=true is sent, and result order is not guaranteed. With ignoreExact
+// the mock returns every known user even when exact=true was requested, emulating a
+// server that does not honor the parameter.
+type lookupMock struct {
+	users       []lookupUser
+	ignoreExact bool
+
+	mu      sync.Mutex
+	queries []string
+}
+
+// newLookupMock starts a mock Keycloak whose token, user lookup and credentials
+// endpoints behave like the real Admin API for the given users.
+func newLookupMock(t *testing.T, users []lookupUser, ignoreExact bool) (*lookupMock, *httptest.Server) {
+	t.Helper()
+	m := &lookupMock{users: users, ignoreExact: ignoreExact}
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		if strings.Contains(r.URL.Path, "/token") {
+			io.WriteString(w, `{"access_token":"adm","expires_in":3600}`)
+			return
+		}
+		if strings.Contains(r.URL.Path, "/credentials") {
+			// /users/{id}/credentials
+			parts := strings.Split(strings.Trim(r.URL.Path, "/"), "/")
+			if len(parts) < 2 {
+				io.WriteString(w, `[]`)
+				return
+			}
+			id := parts[len(parts)-2]
+			for _, u := range users {
+				if u.id == id && u.hasOTP {
+					io.WriteString(w, `[{"type":"otp","id":"o1"}]`)
+					return
+				}
+			}
+			io.WriteString(w, `[]`)
+			return
+		}
+
+		m.mu.Lock()
+		m.queries = append(m.queries, r.URL.RawQuery)
+		m.mu.Unlock()
+
+		q := r.URL.Query()
+		name := q.Get("username")
+		var matched []lookupUser
+		if q.Get("exact") == "true" && !ignoreExact {
+			for _, u := range users {
+				if strings.EqualFold(u.username, name) {
+					matched = append(matched, u)
+				}
+			}
+		} else {
+			// Substring search: unrelated users come back, in no particular order.
+			matched = users
+		}
+		body := make([]map[string]string, 0, len(matched))
+		for _, u := range matched {
+			body = append(body, map[string]string{"id": u.id, "username": u.username})
+		}
+		if err := json.NewEncoder(w).Encode(body); err != nil {
+			t.Errorf("encode users: %v", err)
+		}
+	}))
+	t.Cleanup(ts.Close)
+	return m, ts
+}
+
+// requests returns the raw query string of every recorded user lookup.
+func (m *lookupMock) requests() []string {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	return append([]string(nil), m.queries...)
+}
+
+// sentExact reports whether every recorded user lookup requested exact=true.
+func (m *lookupMock) sentExact(t *testing.T) {
+	t.Helper()
+	qs := m.requests()
+	if len(qs) == 0 {
+		t.Fatal("expected at least one user lookup request, got none")
+	}
+	for _, q := range qs {
+		if !strings.Contains(q, "exact=true") {
+			t.Fatalf("user lookup %q did not request exact=true", q)
+		}
+	}
+}
+
+func TestHasOTP_ExactLookupSelectsRequestedUser(t *testing.T) {
+	m, ts := newLookupMock(t, []lookupUser{
+		{id: "u-alice", username: "alice", hasOTP: true},
+		{id: "u-al", username: "al", hasOTP: false},
+	}, false)
+	got, err := hasOTPAPI(ts).HasOTP(context.Background(), "al")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Fatal("expected OTP false for al, got alice's OTP state")
+	}
+	m.sentExact(t)
+}
+
+func TestHasOTP_LongerUsernameKeepsOwnResult(t *testing.T) {
+	m, ts := newLookupMock(t, []lookupUser{
+		{id: "u-alice", username: "alice", hasOTP: true},
+		{id: "u-al", username: "al", hasOTP: false},
+	}, false)
+	got, err := hasOTPAPI(ts).HasOTP(context.Background(), "alice")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got {
+		t.Fatal("expected OTP true for alice")
+	}
+	m.sentExact(t)
+}
+
+func TestHasOTP_UsernameMatchIsCaseInsensitive(t *testing.T) {
+	m, ts := newLookupMock(t, []lookupUser{
+		{id: "u-alice", username: "alice", hasOTP: true},
+		{id: "u-al", username: "al", hasOTP: false},
+	}, false)
+	got, err := hasOTPAPI(ts).HasOTP(context.Background(), "AL")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Fatal("expected OTP false for AL, matching al's state")
+	}
+	m.sentExact(t)
+}
+
+func TestHasOTP_NoExactMatchIsNotFound(t *testing.T) {
+	m, ts := newLookupMock(t, []lookupUser{
+		{id: "u-alice", username: "alice", hasOTP: true},
+		{id: "u-al", username: "al", hasOTP: false},
+	}, false)
+	_, err := hasOTPAPI(ts).HasOTP(context.Background(), "nonexistent")
+	if err == nil || !strings.Contains(err.Error(), "user not found") {
+		t.Fatalf("expected 'user not found', got %v", err)
+	}
+	m.sentExact(t)
+}
+
+func TestHasOTP_IgnoresUnrelatedUsersWhenExactIsIgnored(t *testing.T) {
+	// Regression guard: even if Keycloak ignores exact=true and returns [alice, al] for
+	// "al", the matching entry must win over users[0]. No exact=true assertion here: this
+	// test isolates the EqualFold selection, which must hold regardless of the query.
+	m, ts := newLookupMock(t, []lookupUser{
+		{id: "u-alice", username: "alice", hasOTP: true},
+		{id: "u-al", username: "al", hasOTP: false},
+	}, true)
+	got, err := hasOTPAPI(ts).HasOTP(context.Background(), "al")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got {
+		t.Fatal("expected OTP false for al, got alice's OTP state")
+	}
+	if qs := m.requests(); len(qs) == 0 {
+		t.Fatal("expected at least one user lookup request, got none")
 	}
 }

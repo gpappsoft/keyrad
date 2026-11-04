@@ -196,7 +196,8 @@ func (k *KeycloakAPI) HasOTP(ctx context.Context, username string) (bool, error)
 		return false, err
 	}
 
-	reqURL := fmt.Sprintf("%s/users?username=%s", k.APIURL, url.QueryEscape(username))
+	// exact=true: Keycloak treats username as a partial (substring) search otherwise.
+	reqURL := fmt.Sprintf("%s/users?username=%s&exact=true", k.APIURL, url.QueryEscape(username))
 	req, err := http.NewRequest("GET", reqURL, nil)
 	if err != nil {
 		return false, fmt.Errorf("failed to create user lookup request: %w", err)
@@ -221,10 +222,20 @@ func (k *KeycloakAPI) HasOTP(ctx context.Context, username string) (bool, error)
 		log.Warn("failed to decode user lookup response", zap.String("url", reqURL), zap.Int("status code", resp.StatusCode), zap.Error(err))
 		return false, fmt.Errorf("decode error: %w", err)
 	}
-	if len(users) == 0 {
+	// Result order is not guaranteed and Keycloak may still return partial matches, so
+	// select the entry that actually matches the requested name instead of trusting users[0].
+	var userID string
+	found := false
+	for _, u := range users {
+		if name, _ := u["username"].(string); strings.EqualFold(name, username) {
+			userID, _ = u["id"].(string)
+			found = true
+			break
+		}
+	}
+	if !found {
 		return false, fmt.Errorf("user not found")
 	}
-	userID, _ := users[0]["id"].(string)
 	// Get credentials for user
 	credURL := fmt.Sprintf("%s/users/%s/credentials", k.APIURL, userID)
 	req, err = http.NewRequest("GET", credURL, nil)

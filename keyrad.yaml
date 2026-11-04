@@ -22,6 +22,15 @@ api_url: "https://<>/admin/realms/<>" # this is the admin API URL
 
 # insecure_skip_tls_verify -> KEYRAD_KEYCLOAK_INSECURE_SKIP_TLS_VERIFY (true/false)
 insecure_skip_tls_verify: false
+# allow_otp_only -> KEYRAD_ALLOW_OTP_ONLY (true/false). With --disable-challenge-response,
+# User-Password carries only the 6-character OTP and an empty password is sent to Keycloak.
+# Requires --disable-challenge-response: without it keyrad refuses to start. Global for all
+# clients and users; the Keycloak Direct Grant flow must skip the password step. See README.
+allow_otp_only: false
+# otp_only_reject_non_otp -> KEYRAD_OTP_ONLY_REJECT_NON_OTP (true/false). Only valid together
+# with allow_otp_only: answer Access-Reject for users without an OTP credential (or when the
+# OTP lookup fails) instead of falling back to the plain password grant.
+otp_only_reject_non_otp: false
 otp_challenge_message: "Please enter your OTP code"
 
 # RADIUS attribute mappings based on user roles/groups/scopes.

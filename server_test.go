@@ -37,6 +37,7 @@ import (
 	"net/http/httptest"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -64,7 +65,11 @@ type keycloakMock struct {
 	clientSecret string // the secret the mock accepts; if keyrad sends another -> 401
 	adminToken   string // bearer token the mock issues for client_credentials
 	adminDenyAll bool   // if true the admin API rejects every request (expired SA token)
-	users        map[string]*mockUser
+	// passwordless models a Direct Grant flow with the password step disabled and the OTP
+	// step required: the password is ignored and every user must present a valid totp.
+	passwordless   bool
+	passwordGrants atomic.Int32 // number of password-grant requests received
+	users          map[string]*mockUser
 
 	ts       *httptest.Server
 	tokenURL string
@@ -124,7 +129,24 @@ func (m *keycloakMock) handleToken(w http.ResponseWriter, r *http.Request) {
 			"token_type":   "Bearer",
 		})
 	case "password":
+		m.passwordGrants.Add(1)
 		u := m.users[r.Form.Get("username")]
+		if u != nil && m.passwordless {
+			if !u.hasOTP {
+				writeJSON(w, http.StatusBadRequest, map[string]string{"error": "invalid_grant", "error_description": "Account is not fully set up"})
+				return
+			}
+			if r.Form.Get("totp") != u.otp {
+				writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_grant", "error_description": "Invalid user credentials"})
+				return
+			}
+			writeJSON(w, http.StatusOK, map[string]any{
+				"access_token": fakeAccessToken(u.roles),
+				"expires_in":   300,
+				"token_type":   "Bearer",
+			})
+			return
+		}
 		if u == nil || u.password != r.Form.Get("password") {
 			writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "invalid_grant"})
 			return
@@ -536,6 +558,120 @@ func TestIntegration_OTPCombinedDisableChallenge(t *testing.T) {
 	// password "bob-pw" + OTP "123456"
 	resp, err := ts.accessRequest(t, "bob", "bob-pw123456", true, nil)
 	expectCode(t, resp, err, radius.CodeAccessAccept)
+}
+
+func TestIntegration_OTPOnlyDisableChallenge(t *testing.T) {
+	carol := &mockUser{username: "carol", password: "", hasOTP: true, otp: "654321", roles: []string{"vpn"}}
+	mock := newKeycloakMock("radius-client", "secret", append(radiusUsers(), carol)...)
+	mock.passwordless = true
+	defer mock.close()
+
+	opts := runOptions{disableChallenge: true}
+	yamlContent := testYAML("radius-client", "secret", mock.tokenURL, mock.apiURL, "")
+	env := map[string]string{envAllowOTPOnly: "true"}
+	ts := startTestServer(t, yamlContent, loopbackClientsConf(), env, opts)
+
+	resp, err := ts.accessRequest(t, "carol", "654321", true, nil)
+	expectCode(t, resp, err, radius.CodeAccessAccept)
+
+	resp, err = ts.accessRequest(t, "carol", "000000", true, nil)
+	expectCode(t, resp, err, radius.CodeAccessReject)
+
+	// OTP-only mode accepts exactly 6 characters: <password><otp> is rejected.
+	resp, err = ts.accessRequest(t, "bob", "bob-pw123456", true, nil)
+	expectCode(t, resp, err, radius.CodeAccessReject)
+
+	resp, err = ts.accessRequest(t, "carol", "65432", true, nil)
+	expectCode(t, resp, err, radius.CodeAccessReject)
+
+	resp, err = ts.accessRequest(t, "carol", "", true, nil)
+	expectCode(t, resp, err, radius.CodeAccessReject)
+
+	if !strings.Contains(ts.logs.String(), `"allow_otp_only":true`) {
+		t.Fatalf("expected allow_otp_only in the startup log:\n%s", ts.logs.String())
+	}
+}
+
+// startOTPOnlyServer starts keyrad in OTP-only mode (--disable-challenge-response plus
+// KEYRAD_ALLOW_OTP_ONLY) and optionally with KEYRAD_OTP_ONLY_REJECT_NON_OTP.
+func startOTPOnlyServer(t *testing.T, mock *keycloakMock, rejectNonOTP bool) *testServer {
+	t.Helper()
+	env := map[string]string{envAllowOTPOnly: "true"}
+	if rejectNonOTP {
+		env[envOTPOnlyRejectNonOTP] = "true"
+	}
+	yamlContent := testYAML("radius-client", "secret", mock.tokenURL, mock.apiURL, "")
+	return startTestServer(t, yamlContent, loopbackClientsConf(), env, runOptions{disableChallenge: true})
+}
+
+func TestIntegration_OTPOnlyUserWithoutOTP(t *testing.T) {
+	t.Run("default falls through to password grant", func(t *testing.T) {
+		// Conditional-OTP flow: a user without OTP still passes with the plain password.
+		mock := newKeycloakMock("radius-client", "secret", radiusUsers()...)
+		defer mock.close()
+		ts := startOTPOnlyServer(t, mock, false)
+
+		resp, err := ts.accessRequest(t, "alice", "alice-pw", true, nil)
+		expectCode(t, resp, err, radius.CodeAccessAccept)
+	})
+
+	t.Run("reject_non_otp rejects without calling Keycloak", func(t *testing.T) {
+		mock := newKeycloakMock("radius-client", "secret", radiusUsers()...)
+		mock.passwordless = true
+		defer mock.close()
+		ts := startOTPOnlyServer(t, mock, true)
+
+		resp, err := ts.accessRequest(t, "alice", "alice-pw", true, nil)
+		expectCode(t, resp, err, radius.CodeAccessReject)
+		if n := mock.passwordGrants.Load(); n != 0 {
+			t.Fatalf("expected no password grant to reach Keycloak, got %d", n)
+		}
+
+		// OTP users are unaffected.
+		resp, err = ts.accessRequest(t, "bob", "123456", true, nil)
+		expectCode(t, resp, err, radius.CodeAccessAccept)
+	})
+
+	t.Run("passwordless flow rejects at Keycloak", func(t *testing.T) {
+		mock := newKeycloakMock("radius-client", "secret", radiusUsers()...)
+		mock.passwordless = true
+		defer mock.close()
+		ts := startOTPOnlyServer(t, mock, false)
+
+		resp, err := ts.accessRequest(t, "alice", "alice-pw", true, nil)
+		expectCode(t, resp, err, radius.CodeAccessReject)
+	})
+}
+
+func TestIntegration_OTPOnlyHasOTPFails(t *testing.T) {
+	mock := newKeycloakMock("radius-client", "secret", radiusUsers()...)
+	mock.passwordless = true
+	mock.adminDenyAll = true // HasOTP fails: admin API rejects every request
+	defer mock.close()
+	ts := startOTPOnlyServer(t, mock, true)
+
+	resp, err := ts.accessRequest(t, "bob", "123456", true, nil)
+	expectCode(t, resp, err, radius.CodeAccessReject)
+	if n := mock.passwordGrants.Load(); n != 0 {
+		t.Fatalf("expected no password grant to reach Keycloak, got %d", n)
+	}
+}
+
+func TestStartup_AllowOTPOnlyRequiresDisableChallenge(t *testing.T) {
+	mock := newKeycloakMock("radius-client", "secret", radiusUsers()...)
+	defer mock.close()
+
+	dir := t.TempDir()
+	yamlPath := writeTemp(t, dir, "keyrad.yaml", testYAML("radius-client", "secret", mock.tokenURL, mock.apiURL, ""))
+	clientsPath := writeTemp(t, dir, "clients.conf", loopbackClientsConf())
+	err := run(runOptions{configPath: yamlPath, clientsPath: clientsPath, pap: true},
+		zap.NewNop(), envMapLookup(map[string]string{envAllowOTPOnly: "true"}))
+	if err == nil {
+		t.Fatal("startup should fail when allow_otp_only is set without --disable-challenge-response")
+	}
+	if !strings.Contains(err.Error(), "allow_otp_only") || !strings.Contains(err.Error(), "--disable-challenge-response") {
+		t.Fatalf("startup error must name allow_otp_only and --disable-challenge-response, got: %v", err)
+	}
 }
 
 func TestIntegration_WrongPasswordRejected(t *testing.T) {

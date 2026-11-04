@@ -184,6 +184,8 @@ Keycloak Admin API at the first RADIUS request — it now fails fast at startup 
 | `realm`                         | `KEYRAD_KEYCLOAK_REALM`                     | Keycloak realm name.                                               |
 | `api_url`                       | `KEYRAD_KEYCLOAK_API_URL`                   | Keycloak Admin REST API base URL.                                  |
 | `insecure_skip_tls_verify`      | `KEYRAD_KEYCLOAK_INSECURE_SKIP_TLS_VERIFY`  | Set to `true`/`false` to skip TLS verification.                    |
+| `allow_otp_only`                | `KEYRAD_ALLOW_OTP_ONLY`                     | Requires `--disable-challenge-response`: accept only the 6-char OTP (empty password). Default `false`. See [OTP-only mode](#otp-only-mode-allow_otp_only). |
+| `otp_only_reject_non_otp`       | `KEYRAD_OTP_ONLY_REJECT_NON_OTP`            | Requires `allow_otp_only`: reject users without an OTP credential instead of falling back to the password grant. Default `false`. |
 | `clients.conf` per-client secret | `KEYRAD_RADIUS_CLIENT_SECRET_<CLIENT_KEY>`  | Overrides the shared secret of one RADIUS client (see below).      |
 
 **RADIUS client shared secrets** (`clients.conf`) can also be injected per client. `<CLIENT_KEY>`
@@ -222,6 +224,34 @@ radtest testuser password 127.0.0.1 0 test
 ```
 - For OTP (default): Enter password first, then respond to challenge with OTP code (customizable message).
 - For OTP with `--disable-challenge-response`: Enter `<password><otp>` as the password (e.g. `mypassword123456`).
+- For OTP-only mode (`allow_otp_only: true` plus `--disable-challenge-response`): Enter only the OTP as the password (e.g. `radtest carol 123456 127.0.0.1 0 test`).
+
+### OTP-only mode (`allow_otp_only`)
+
+With `allow_otp_only: true` (or `KEYRAD_ALLOW_OTP_ONLY=true`), OTP users authenticate with the OTP alone:
+
+- **Only with `--disable-challenge-response`.** If `allow_otp_only` is set without this flag, keyrad refuses
+  to start instead of silently ignoring the option.
+- **Exactly 6 characters.** User-Password must contain exactly 6 characters. They are sent to Keycloak as
+  `totp` together with an empty `password`. `<password><otp>`, shorter or longer values and an empty
+  User-Password are rejected.
+- **Global.** The option applies to every RADIUS client and every user served by this keyrad instance. Run a
+  separate instance if some clients still need `<password><otp>`.
+- **Single factor.** As far as keyrad is concerned, the OTP is the only credential checked. Any additional
+  protection (for example client certificates on the VPN/NAS) is outside keyrad and is not checked by it.
+- **Keycloak flow.** The client keyrad uses (`client_id`) needs its own Direct Grant flow: in
+  *Clients → `<client>` → Advanced → Authentication flow overrides*, bind a copy of the *direct grant*
+  flow where the password step is **disabled** and the OTP step is **required**. Without this override,
+  Keycloak still checks the password and every OTP-only login fails.
+- **Users without an OTP credential.** keyrad asks the Admin API whether the user has an OTP credential.
+  If the user has none, or the lookup fails, keyrad by default falls back to the normal password grant
+  with the full User-Password, so the result depends on the Keycloak flow (with the OTP step required,
+  Keycloak rejects it). Set `otp_only_reject_non_otp: true` (`KEYRAD_OTP_ONLY_REJECT_NON_OTP=true`) to make
+  keyrad answer Access-Reject itself without contacting Keycloak. The default is `false` so instances that
+  also serve password-only users keep working. Setting it without `allow_otp_only` is a startup error.
+
+The startup log (`keyrad starting`) shows `disable_challenge_response`, `allow_otp_only` and
+`otp_only_reject_non_otp`.
 
 ## Advanced Features
 - **Challenge-response**: Standard RADIUS Access-Challenge for OTP, or disable for legacy OTP style.
@@ -249,7 +279,9 @@ Three layers of automated tests are included, all runnable with `go test ./...`:
    exercise the full auth flow with real RADIUS packets: successful password auth
    (with credentials supplied **via YAML and via ENV** to prove both behave the same),
    OTP challenge-response (`Access-Challenge` → second request with the OTP), the
-   `<password><otp>` combined flow (`--disable-challenge-response`), and failure cases
+   `<password><otp>` combined flow (`--disable-challenge-response`), the OTP-only flow
+   (`allow_otp_only`, against a mocked passwordless Direct Grant flow, including users without
+   an OTP credential and a failing OTP lookup), and failure cases
    (wrong password, unreachable Keycloak, expired service-account token, invalid
    client secret).
 3. **Smoke tests** (`server_test.go`) — start the server with the secret provided only

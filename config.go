@@ -39,6 +39,8 @@ const (
 	envKeycloakRealm                 = "KEYRAD_KEYCLOAK_REALM"
 	envKeycloakAPIURL                = "KEYRAD_KEYCLOAK_API_URL"
 	envKeycloakInsecureSkipTLSVerify = "KEYRAD_KEYCLOAK_INSECURE_SKIP_TLS_VERIFY"
+	envAllowOTPOnly                  = "KEYRAD_ALLOW_OTP_ONLY"
+	envOTPOnlyRejectNonOTP           = "KEYRAD_OTP_ONLY_REJECT_NON_OTP"
 	// Radius client shared secrets are overridden per client via
 	// KEYRAD_RADIUS_CLIENT_SECRET_<key>, where <key> is the client block's ipaddr (or its
 	// name when ipaddr is absent) with ".", ":", "/", "-" and spaces replaced by "_".
@@ -57,6 +59,8 @@ type Config struct {
 	ScopeRadiusMap        radiussrv.ScopeRadiusMapping `yaml:"scope_radius_map"`
 	OTPChallengeMessage   string                       `yaml:"otp_challenge_message"`
 	ListenAddr            string                       `yaml:"listen_addr"`
+	AllowOTPOnly          bool                         `yaml:"allow_otp_only"`
+	OTPOnlyRejectNonOTP   bool                         `yaml:"otp_only_reject_non_otp"`
 
 	// appliedEnvVars records which KEYRAD_* variables actually overrode the YAML so the
 	// startup log can name them without ever logging their values.
@@ -116,6 +120,12 @@ func (c *Config) applyEnvOverrides(lookupEnv func(string) (string, bool)) error 
 	if err := setBool(envKeycloakInsecureSkipTLSVerify, &c.InsecureSkipTLSVerify); err != nil {
 		return err
 	}
+	if err := setBool(envAllowOTPOnly, &c.AllowOTPOnly); err != nil {
+		return err
+	}
+	if err := setBool(envOTPOnlyRejectNonOTP, &c.OTPOnlyRejectNonOTP); err != nil {
+		return err
+	}
 	return nil
 }
 
@@ -143,6 +153,9 @@ func (c *Config) validate() error {
 		if isMissing(r.value) || (r.url && containsPlaceholder(r.value)) {
 			return fmt.Errorf("missing required configuration: %s is not set (it is empty or a placeholder) - set it in keyrad.yaml or export %s", r.name, r.envVar)
 		}
+	}
+	if c.OTPOnlyRejectNonOTP && !c.AllowOTPOnly {
+		return fmt.Errorf("otp_only_reject_non_otp requires allow_otp_only to be enabled")
 	}
 	return c.validateScopeRadiusMap()
 }
